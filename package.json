@@ -1,0 +1,17 @@
+{
+  "name": "weather-forecast-dashboard",
+  "version": "1.0.0",
+  "description": "Real-Time & Historical Weather Intelligence Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "weather",
+    "dashboard",
+    "open-meteo"
+  ],
+  "author": "",
+  "license": "MIT"
+}

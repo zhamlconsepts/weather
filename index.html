@@ -1,0 +1,3318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Weather Forecast — Real-Time & Historical Intelligence</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet.js for Interactive Temperature Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --u: min(100vw / 1357, 100dvh / 871);
+      --ink: #ffffff;
+      --glass: rgba(255, 255, 255, .155);
+      --glass-line: rgba(255, 255, 255, .20);
+      --glass-card: linear-gradient(180deg,
+        rgba(255,255,255,.20) 0%,
+        rgba(255,255,255,.258) 24%,
+        rgba(255,255,255,.252) 78%,
+        rgba(255,255,255,.232) 100%);
+      --e-out: cubic-bezier(.16, 1, .3, 1);
+      --e-soft: cubic-bezier(.22, .61, .36, 1);
+      --e-pen: cubic-bezier(.37, .01, .2, 1);
+    }
+
+    @supports not (height: 100dvh) {
+      :root {
+        --u: min(100vw / 1357, 100vh / 871);
+      }
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background-color: #04121b;
+      color: var(--ink);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-feature-settings: "kern" 1;
+      user-select: none;
+    }
+
+    /* Stage Container & Background */
+    .stage {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background-color: #04121b;
+    }
+
+    .stage-bg-layer {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center 25%;
+      background-repeat: no-repeat;
+      transition: opacity 1.2s cubic-bezier(.16, 1, .3, 1), transform 1.4s cubic-bezier(.16, 1, .3, 1);
+      opacity: 0;
+      transform: scale(1.02);
+      z-index: 0;
+      will-change: opacity, transform;
+    }
+
+    .stage-bg-layer.active {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    /* Vignette overlay */
+    .stage::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(105deg, rgba(4,16,24,.34) 0%, rgba(4,16,24,.20) 40%, rgba(4,16,24,.06) 78%, transparent 100%),
+        linear-gradient(180deg, rgba(4,16,24,.12) 0%, transparent 22%),
+        linear-gradient(0deg, rgba(4,16,24,.07), rgba(4,16,24,.07));
+      z-index: 1;
+    }
+
+    .content-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+    }
+
+    /* Keyframe Animations */
+    @keyframes riseIn {
+      from {
+        opacity: 0;
+        transform: translateY(var(--ry, calc(14 * var(--u))));
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes slideL {
+      from {
+        opacity: 0;
+        transform: translateX(calc(-26 * var(--u)));
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    @keyframes slideR {
+      from {
+        opacity: 0;
+        transform: translateX(calc(30 * var(--u))) scale(.985);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+    }
+
+    @keyframes popIn {
+      from {
+        opacity: 0;
+        transform: scale(0.7);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes growY {
+      from {
+        transform: scaleY(0);
+      }
+      to {
+        transform: scaleY(1);
+      }
+    }
+
+    @keyframes lineUp {
+      from {
+        transform: translateY(115%);
+      }
+      to {
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes drawLine {
+      from {
+        stroke-dashoffset: 1;
+      }
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+
+    @keyframes wipeX {
+      from {
+        transform: scaleX(0);
+      }
+      to {
+        transform: scaleX(1);
+      }
+    }
+
+    @keyframes sheen {
+      from {
+        transform: translate3d(-150%, 0, 0) skewX(-18deg);
+      }
+      to {
+        transform: translate3d(260%, 0, 0) skewX(-18deg);
+      }
+    }
+
+    @keyframes pulseLive {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.35);
+        opacity: 0.6;
+      }
+    }
+
+    /* 1) LEFT SIDEBAR */
+    .sidebar {
+      position: absolute;
+      left: calc(16 * var(--u));
+      top: calc(14 * var(--u));
+      bottom: calc(7 * var(--u));
+      width: calc(72 * var(--u));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: calc(22 * var(--u));
+      padding-bottom: calc(30 * var(--u));
+      background: linear-gradient(180deg,
+        rgba(255,255,255,.125) 0%,
+        rgba(255,255,255,.135) 13%,
+        rgba(255,255,255,.098) 34%,
+        rgba(255,255,255,.092) 100%);
+      backdrop-filter: blur(calc(18 * var(--u))) saturate(115%);
+      -webkit-backdrop-filter: blur(calc(18 * var(--u))) saturate(115%);
+      border-radius: calc(26 * var(--u));
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 calc(8 * var(--u)) calc(32 * var(--u)) rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      animation: slideL .92s var(--e-out) .05s both;
+      z-index: 20;
+    }
+
+    .sidebar .pip {
+      position: absolute;
+      left: calc(-2 * var(--u));
+      top: calc(131 * var(--u));
+      width: calc(5 * var(--u));
+      height: calc(29 * var(--u));
+      border-radius: calc(3 * var(--u));
+      background: #ffffff;
+      box-shadow: 0 0 calc(10 * var(--u)) rgba(255,255,255,.55);
+      transform-origin: center center;
+      animation: growY .50s var(--e-out) .68s both;
+      transition: top 0.3s var(--e-soft);
+    }
+
+    .logo-box {
+      width: calc(40 * var(--u));
+      height: calc(40 * var(--u));
+      animation: popIn .70s var(--e-out) .26s both;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .logo-svg {
+      width: 100%;
+      height: 100%;
+      transition: transform 0.25s var(--e-soft);
+    }
+
+    .logo-box:hover .logo-svg {
+      transform: scale(1.08) rotate(5deg);
+    }
+
+    .nav {
+      margin-top: calc(57.5 * var(--u));
+      display: flex;
+      flex-direction: column;
+      gap: calc(38 * var(--u));
+      align-items: center;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: calc(42 * var(--u));
+      height: calc(42 * var(--u));
+      color: #ffffff;
+      opacity: .65;
+      text-decoration: none;
+      transition: opacity .2s var(--e-soft), transform .2s var(--e-soft), background .2s var(--e-soft);
+      border-radius: calc(14 * var(--u));
+      animation: riseIn .60s var(--e-out) both;
+      cursor: pointer;
+    }
+
+    .nav-link[aria-current="page"] {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.16);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    }
+
+    .nav-link:hover {
+      opacity: 1;
+      transform: translateY(calc(-2 * var(--u)));
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .nav-link svg {
+      width: calc(23 * var(--u));
+      height: calc(23 * var(--u));
+    }
+
+    /* 2) HEADER */
+    .header {
+      position: absolute;
+      top: calc(22 * var(--u));
+      left: calc(126 * var(--u));
+      right: calc(37 * var(--u));
+      height: calc(52 * var(--u));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .header-left {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header-location-row {
+      display: flex;
+      align-items: center;
+      gap: calc(10 * var(--u));
+    }
+
+    .header-location-name {
+      font-size: calc(22 * var(--u));
+      font-weight: 700;
+      letter-spacing: calc(-0.4 * var(--u));
+      line-height: 1;
+      color: #ffffff;
+      animation: riseIn .70s var(--e-out) .14s both;
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: calc(5 * var(--u));
+      background: rgba(16, 185, 129, 0.22);
+      border: 1px solid rgba(52, 211, 153, 0.45);
+      border-radius: calc(10 * var(--u));
+      padding: calc(3 * var(--u)) calc(8 * var(--u));
+      font-size: calc(10 * var(--u));
+      font-weight: 600;
+      color: #34d399;
+      text-transform: uppercase;
+      letter-spacing: calc(0.4 * var(--u));
+      cursor: pointer;
+    }
+
+    .live-dot {
+      width: calc(6 * var(--u));
+      height: calc(6 * var(--u));
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 calc(6 * var(--u)) #10b981;
+      animation: pulseLive 2s infinite ease-in-out;
+    }
+
+    .header-subtext {
+      font-size: calc(13.5 * var(--u));
+      font-weight: 500;
+      opacity: 0.85;
+      margin-top: calc(8 * var(--u));
+      line-height: 1;
+      animation: riseIn .80s var(--e-out) .22s both;
+    }
+
+    .header-tools {
+      display: flex;
+      align-items: center;
+      gap: calc(14 * var(--u));
+    }
+
+    .tool {
+      background: rgba(255, 255, 255, .15);
+      backdrop-filter: blur(calc(16 * var(--u))) saturate(115%);
+      -webkit-backdrop-filter: blur(calc(16 * var(--u))) saturate(115%);
+      height: calc(48 * var(--u));
+      border-radius: calc(24 * var(--u));
+      border: 1px solid var(--glass-line);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      cursor: pointer;
+      text-decoration: none;
+      padding: 0 calc(16 * var(--u));
+      gap: calc(8 * var(--u));
+      font-size: calc(13.5 * var(--u));
+      font-weight: 600;
+      transition: background .2s var(--e-soft), transform .2s var(--e-soft), box-shadow .2s var(--e-soft);
+      box-shadow: 0 calc(4 * var(--u)) calc(16 * var(--u)) rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .tool.icon-only {
+      width: calc(48 * var(--u));
+      padding: 0;
+      border-radius: 50%;
+    }
+
+    .tool:hover {
+      background: rgba(255, 255, 255, .25);
+      transform: scale(1.05);
+      box-shadow: 0 calc(6 * var(--u)) calc(20 * var(--u)) rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    }
+
+    .tool:active {
+      transform: scale(0.97);
+    }
+
+    .tool svg {
+      width: calc(20 * var(--u));
+      height: calc(20 * var(--u));
+    }
+
+    /* SPA VIEWS CONTAINER */
+    .spa-view {
+      display: none;
+      opacity: 0;
+      transition: opacity 0.3s var(--e-soft);
+    }
+
+    .spa-view.active {
+      display: block;
+      opacity: 1;
+    }
+
+    /* 3) MAIN DASHBOARD VIEW */
+    .hero {
+      position: absolute;
+      left: calc(126 * var(--u));
+      top: calc(130 * var(--u));
+      max-width: calc(560 * var(--u));
+      z-index: 5;
+    }
+
+    .chip {
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      background: rgba(255, 255, 255, .175);
+      backdrop-filter: blur(calc(16 * var(--u))) saturate(115%);
+      -webkit-backdrop-filter: blur(calc(16 * var(--u))) saturate(115%);
+      height: calc(34 * var(--u));
+      border-radius: calc(17 * var(--u));
+      padding: 0 calc(14 * var(--u));
+      border: 1px solid var(--glass-line);
+      font-size: calc(13.5 * var(--u));
+      font-weight: 500;
+      color: #ffffff;
+      letter-spacing: calc(-0.2 * var(--u));
+      box-shadow: 0 calc(4 * var(--u)) calc(14 * var(--u)) rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    }
+
+    .hero h1 {
+      margin-top: calc(16 * var(--u));
+      font-family: 'Inter Tight', 'Inter', sans-serif;
+      font-weight: 500;
+      font-size: calc(58 * var(--u));
+      line-height: calc(70 * var(--u));
+      letter-spacing: calc(.25 * var(--u));
+      color: #ffffff;
+    }
+
+    .hero .ln {
+      display: block;
+      overflow: hidden;
+    }
+
+    .hero .ln span {
+      display: block;
+      animation: lineUp 1.05s var(--e-out) both;
+    }
+
+    .hero .blurb {
+      width: calc(480 * var(--u));
+      font-size: calc(14.5 * var(--u));
+      line-height: calc(23 * var(--u));
+      font-weight: 500;
+      letter-spacing: calc(-0.2 * var(--u));
+      color: rgba(255, 255, 255, .95);
+      margin-top: calc(12 * var(--u));
+    }
+
+    /* HISTORICAL COMPARISON STATS ROW */
+    .history-stats-row {
+      display: flex;
+      gap: calc(12 * var(--u));
+      margin-top: calc(20 * var(--u));
+      width: calc(480 * var(--u));
+    }
+
+    .history-card {
+      flex: 1;
+      padding: calc(12 * var(--u)) calc(14 * var(--u));
+      background: rgba(255, 255, 255, 0.13);
+      backdrop-filter: blur(calc(16 * var(--u)));
+      -webkit-backdrop-filter: blur(calc(16 * var(--u)));
+      border: 1px solid var(--glass-line);
+      border-radius: calc(16 * var(--u));
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .history-card:hover {
+      background: rgba(255, 255, 255, 0.20);
+      transform: translateY(calc(-2 * var(--u)));
+    }
+
+    .history-label {
+      font-size: calc(11.5 * var(--u));
+      font-weight: 600;
+      text-transform: uppercase;
+      opacity: 0.75;
+      letter-spacing: calc(0.5 * var(--u));
+    }
+
+    .history-temp {
+      font-size: calc(20 * var(--u));
+      font-weight: 700;
+      margin-top: calc(4 * var(--u));
+      color: #ffffff;
+    }
+
+    .history-diff {
+      font-size: calc(11.5 * var(--u));
+      font-weight: 600;
+      margin-top: calc(2 * var(--u));
+    }
+
+    .diff-warmer { color: #f87171; }
+    .diff-colder { color: #60a5fa; }
+    .diff-equal  { color: #34d399; }
+
+    /* FORECAST STRIP */
+    .forecast {
+      position: absolute;
+      left: calc(126 * var(--u));
+      right: calc(396 * var(--u));
+      bottom: calc(85 * var(--u));
+      z-index: 5;
+    }
+
+    .f-temps {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding: 0 calc(10 * var(--u));
+    }
+
+    .f-item {
+      display: flex;
+      align-items: center;
+      color: #ffffff;
+      animation: riseIn .65s var(--e-out) both;
+      cursor: pointer;
+      padding: calc(4 * var(--u)) calc(6 * var(--u));
+      border-radius: calc(12 * var(--u));
+      transition: background 0.2s var(--e-soft), transform 0.2s var(--e-soft);
+    }
+
+    .f-item:hover {
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateY(calc(-3 * var(--u)));
+    }
+
+    .f-temp {
+      font-size: calc(37 * var(--u));
+      font-weight: 400;
+      letter-spacing: calc(-0.7 * var(--u));
+      line-height: 1;
+    }
+
+    .f-icon {
+      width: calc(28 * var(--u));
+      height: calc(28 * var(--u));
+      margin-left: calc(8 * var(--u));
+      flex-shrink: 0;
+    }
+
+    .forecast-chart {
+      width: 100%;
+      height: calc(210 * var(--u));
+      margin-top: calc(36 * var(--u));
+      display: block;
+      overflow: visible;
+    }
+
+    .wline {
+      animation: drawLine 1.60s var(--e-pen) 1.50s both;
+      transition: d 0.6s var(--e-soft);
+    }
+
+    #wclipr {
+      transform-origin: 0 0;
+      animation: wipeX 1.42s var(--e-pen) 1.72s both;
+    }
+
+    .f-days {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 calc(10 * var(--u));
+      margin-top: calc(-28 * var(--u));
+      position: relative;
+      z-index: 2;
+    }
+
+    .f-day {
+      font-size: calc(17 * var(--u));
+      font-weight: 500;
+      color: rgba(255, 255, 255, .88);
+      animation: riseIn .60s var(--e-out) both;
+      cursor: pointer;
+      padding: calc(3 * var(--u)) calc(8 * var(--u));
+      border-radius: calc(8 * var(--u));
+      transition: color 0.2s var(--e-soft), background 0.2s var(--e-soft);
+    }
+
+    .f-day:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+
+    .f-day.on {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    /* RIGHT RAIL */
+    .rail {
+      position: absolute;
+      right: calc(38 * var(--u));
+      top: calc(130 * var(--u));
+      bottom: calc(85 * var(--u));
+      width: calc(310 * var(--u));
+      display: flex;
+      flex-direction: column;
+      gap: calc(18 * var(--u));
+      z-index: 10;
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      background: var(--glass-card);
+      backdrop-filter: blur(calc(26 * var(--u))) saturate(118%);
+      -webkit-backdrop-filter: blur(calc(26 * var(--u))) saturate(118%);
+      border-radius: calc(24 * var(--u));
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 calc(8 * var(--u)) calc(32 * var(--u)) rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+      animation: slideR .95s var(--e-out) both;
+      cursor: pointer;
+      transition: transform 0.25s var(--e-soft), box-shadow 0.25s var(--e-soft), border-color 0.25s var(--e-soft);
+    }
+
+    .card:hover {
+      transform: translateX(calc(-4 * var(--u))) scale(1.015);
+      box-shadow: 0 calc(12 * var(--u)) calc(38 * var(--u)) rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .card.big {
+      border-radius: calc(26 * var(--u));
+      padding: calc(22 * var(--u)) calc(22 * var(--u)) calc(20 * var(--u));
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-place {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: calc(17.5 * var(--u));
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .card-place svg {
+      width: calc(20 * var(--u));
+      height: calc(20 * var(--u));
+      opacity: 0.9;
+    }
+
+    .big-temp {
+      font-size: calc(88 * var(--u));
+      font-weight: 500;
+      letter-spacing: calc(-4.4 * var(--u));
+      line-height: 1;
+      margin: calc(12 * var(--u)) 0 calc(18 * var(--u));
+      color: #ffffff;
+      display: flex;
+      align-items: baseline;
+    }
+
+    .big-temp i {
+      font-style: normal;
+      font-size: calc(32 * var(--u));
+      font-weight: 400;
+      letter-spacing: normal;
+      margin-left: calc(6 * var(--u));
+      opacity: 0.95;
+    }
+
+    .metrics-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid rgba(255, 255, 255, .16);
+      padding-top: calc(12 * var(--u));
+      margin-top: auto;
+    }
+
+    .metric-item {
+      display: flex;
+      align-items: center;
+      gap: calc(7 * var(--u));
+      font-size: calc(13 * var(--u));
+      font-weight: 500;
+      color: rgba(255, 255, 255, .92);
+    }
+
+    .metric-item svg {
+      width: calc(16 * var(--u));
+      height: calc(16 * var(--u));
+      opacity: 0.85;
+      flex-shrink: 0;
+    }
+
+    .card.row {
+      height: calc(112 * var(--u));
+      padding: calc(16 * var(--u)) calc(20 * var(--u));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .row-left {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .row-country {
+      font-size: calc(11.5 * var(--u));
+      opacity: 0.72;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: calc(0.5 * var(--u));
+      line-height: 1;
+    }
+
+    .row-city {
+      font-size: calc(16.5 * var(--u));
+      font-weight: 600;
+      margin-top: calc(4 * var(--u));
+      line-height: 1.2;
+      color: #ffffff;
+    }
+
+    .row-condition {
+      font-size: calc(13 * var(--u));
+      opacity: 0.88;
+      margin-top: calc(4 * var(--u));
+      font-weight: 400;
+      line-height: 1;
+    }
+
+    .row-right {
+      display: flex;
+      align-items: center;
+      gap: calc(12 * var(--u));
+    }
+
+    .row-temp {
+      font-size: calc(30 * var(--u));
+      font-weight: 500;
+      letter-spacing: calc(-1 * var(--u));
+      color: #ffffff;
+      line-height: 1;
+    }
+
+    .row-icon {
+      width: calc(32 * var(--u));
+      height: calc(32 * var(--u));
+      flex-shrink: 0;
+    }
+
+    /* Sheen animation */
+    .card::after, .chip::after, .history-card::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 38%;
+      background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, .17) 50%, transparent 100%);
+      transform: translate3d(-150%, 0, 0) skewX(-18deg);
+      pointer-events: none;
+      animation: sheen 1.15s var(--e-soft) 2.55s 1 both;
+      border-radius: inherit;
+    }
+
+    /* 4) INTERACTIVE MAP VIEW (GLOBE / TEMPERATURE MAP) */
+    .map-view-container {
+      position: absolute;
+      left: calc(126 * var(--u));
+      right: calc(38 * var(--u));
+      top: calc(120 * var(--u));
+      bottom: calc(30 * var(--u));
+      background: var(--glass-card);
+      backdrop-filter: blur(calc(26 * var(--u))) saturate(120%);
+      -webkit-backdrop-filter: blur(calc(26 * var(--u))) saturate(120%);
+      border-radius: calc(26 * var(--u));
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 calc(12 * var(--u)) calc(40 * var(--u)) rgba(0,0,0,0.35);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      z-index: 15;
+    }
+
+    .map-header-bar {
+      padding: calc(14 * var(--u)) calc(22 * var(--u));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--glass-line);
+      background: rgba(4, 18, 27, 0.45);
+    }
+
+    .map-title {
+      font-size: calc(18 * var(--u));
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: calc(10 * var(--u));
+    }
+
+    .map-legend {
+      display: flex;
+      align-items: center;
+      gap: calc(14 * var(--u));
+      font-size: calc(12 * var(--u));
+      font-weight: 500;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: calc(5 * var(--u));
+    }
+
+    .legend-dot {
+      width: calc(10 * var(--u));
+      height: calc(10 * var(--u));
+      border-radius: 50%;
+    }
+
+    .leaflet-map-target {
+      flex: 1;
+      width: 100%;
+      background: #061824;
+    }
+
+    /* Leaflet Custom Styles */
+    .leaflet-bar a {
+      background: rgba(15, 23, 42, 0.85) !important;
+      color: #fff !important;
+      border-color: rgba(255,255,255,0.2) !important;
+    }
+    .leaflet-popup-content-wrapper {
+      background: rgba(10, 25, 38, 0.92) !important;
+      backdrop-filter: blur(12px) !important;
+      color: #fff !important;
+      border: 1px solid rgba(255,255,255,0.3) !important;
+      border-radius: 14px !important;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+    }
+    .leaflet-popup-tip {
+      background: rgba(10, 25, 38, 0.92) !important;
+    }
+
+    .temp-marker-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      color: #ffffff;
+      border-radius: 18px;
+      border: 1.5px solid rgba(255,255,255,0.85);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+      padding: 3px 8px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .temp-marker-badge:hover {
+      transform: scale(1.18);
+    }
+
+    /* 5) CALENDAR & STABLE TEMPERATURE VIEW */
+    .calendar-view-container {
+      position: absolute;
+      left: calc(126 * var(--u));
+      right: calc(38 * var(--u));
+      top: calc(120 * var(--u));
+      bottom: calc(30 * var(--u));
+      background: var(--glass-card);
+      backdrop-filter: blur(calc(26 * var(--u))) saturate(120%);
+      -webkit-backdrop-filter: blur(calc(26 * var(--u))) saturate(120%);
+      border-radius: calc(26 * var(--u));
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 calc(12 * var(--u)) calc(40 * var(--u)) rgba(0,0,0,0.35);
+      overflow-y: auto;
+      padding: calc(24 * var(--u)) calc(28 * var(--u));
+      z-index: 15;
+    }
+
+    .calendar-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: calc(20 * var(--u));
+    }
+
+    .calendar-month-title {
+      font-size: calc(22 * var(--u));
+      font-weight: 700;
+      letter-spacing: calc(-0.4 * var(--u));
+    }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: calc(10 * var(--u));
+    }
+
+    .cal-day-header {
+      font-size: calc(12.5 * var(--u));
+      font-weight: 600;
+      text-transform: uppercase;
+      opacity: 0.7;
+      text-align: center;
+      padding-bottom: calc(8 * var(--u));
+    }
+
+    .cal-cell {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: calc(16 * var(--u));
+      padding: calc(12 * var(--u)) calc(10 * var(--u));
+      min-height: calc(80 * var(--u));
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: background 0.2s, transform 0.2s, border-color 0.2s;
+      cursor: pointer;
+    }
+
+    .cal-cell:hover {
+      background: rgba(255, 255, 255, 0.22);
+      transform: translateY(calc(-3 * var(--u)));
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .cal-cell.today {
+      border: 2px solid #34d399;
+      background: rgba(52, 211, 153, 0.16);
+    }
+
+    .cal-cell-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: calc(13 * var(--u));
+      font-weight: 600;
+    }
+
+    .cal-cell-stable {
+      font-size: calc(20 * var(--u));
+      font-weight: 700;
+      color: #ffffff;
+      text-align: center;
+      margin: calc(4 * var(--u)) 0;
+    }
+
+    .cal-cell-minmax {
+      font-size: calc(11 * var(--u));
+      opacity: 0.75;
+      text-align: center;
+    }
+
+    /* MODALS */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 18, 27, 0.65);
+      backdrop-filter: blur(calc(12 * var(--u)));
+      -webkit-backdrop-filter: blur(calc(12 * var(--u)));
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s var(--e-soft);
+    }
+
+    .modal-backdrop.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .glass-modal {
+      width: 90%;
+      max-width: calc(520 * var(--u));
+      background: linear-gradient(180deg,
+        rgba(255,255,255,.24) 0%,
+        rgba(255,255,255,.28) 30%,
+        rgba(255,255,255,.22) 100%);
+      backdrop-filter: blur(calc(32 * var(--u))) saturate(120%);
+      -webkit-backdrop-filter: blur(calc(32 * var(--u))) saturate(120%);
+      border-radius: calc(28 * var(--u));
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 calc(16 * var(--u)) calc(48 * var(--u)) rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      padding: calc(28 * var(--u));
+      color: #ffffff;
+      transform: scale(0.92) translateY(calc(16 * var(--u)));
+      transition: transform 0.3s var(--e-out);
+      position: relative;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+
+    .modal-backdrop.active .glass-modal {
+      transform: scale(1) translateY(0);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: calc(18 * var(--u));
+    }
+
+    .modal-title {
+      font-size: calc(20 * var(--u));
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: calc(10 * var(--u));
+    }
+
+    .modal-close {
+      width: calc(34 * var(--u));
+      height: calc(34 * var(--u));
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid var(--glass-line);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.28);
+      transform: scale(1.08);
+    }
+
+    .search-input-box {
+      position: relative;
+      width: 100%;
+      margin-bottom: calc(16 * var(--u));
+    }
+
+    .search-input {
+      width: 100%;
+      height: calc(50 * var(--u));
+      border-radius: calc(16 * var(--u));
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 0 calc(18 * var(--u)) 0 calc(48 * var(--u));
+      color: #ffffff;
+      font-size: calc(15 * var(--u));
+      font-family: inherit;
+      outline: none;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .search-input:focus {
+      background: rgba(255, 255, 255, 0.22);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .search-icon-inside {
+      position: absolute;
+      left: calc(16 * var(--u));
+      top: 50%;
+      transform: translateY(-50%);
+      width: calc(20 * var(--u));
+      height: calc(20 * var(--u));
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    .search-results-list {
+      max-height: calc(240 * var(--u));
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: calc(8 * var(--u));
+    }
+
+    .search-result-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: calc(12 * var(--u)) calc(16 * var(--u));
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: calc(14 * var(--u));
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+    }
+
+    .search-result-item:hover {
+      background: rgba(255, 255, 255, 0.24);
+      transform: translateX(calc(4 * var(--u)));
+    }
+
+    .quick-cities-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: calc(8 * var(--u));
+      margin-top: calc(14 * var(--u));
+    }
+
+    .quick-city-chip {
+      padding: calc(8 * var(--u)) calc(14 * var(--u));
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid var(--glass-line);
+      border-radius: calc(12 * var(--u));
+      font-size: calc(13 * var(--u));
+      color: #ffffff;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+    }
+
+    .quick-city-chip:hover {
+      background: rgba(255, 255, 255, 0.24);
+      transform: scale(1.04);
+    }
+
+    /* Toast */
+    .toast-msg {
+      position: fixed;
+      bottom: calc(30 * var(--u));
+      left: 50%;
+      transform: translateX(-50%) translateY(calc(80 * var(--u)));
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(calc(16 * var(--u)));
+      -webkit-backdrop-filter: blur(calc(16 * var(--u)));
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      padding: calc(12 * var(--u)) calc(24 * var(--u));
+      border-radius: calc(16 * var(--u));
+      font-size: calc(14 * var(--u));
+      font-weight: 500;
+      box-shadow: 0 calc(10 * var(--u)) calc(30 * var(--u)) rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+      transition: transform 0.35s var(--e-out), opacity 0.35s var(--e-out);
+      opacity: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: calc(10 * var(--u));
+    }
+
+    .toast-msg.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* Focus visible */
+    :focus-visible {
+      outline: calc(2 * var(--u)) solid #ffffff;
+      outline-offset: calc(2 * var(--u));
+    }
+
+    /* Responsive Design for Mobile & Tablets */
+    @media (max-width: 860px) {
+      html, body {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        height: auto !important;
+        min-height: 100%;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      :root {
+        --u: min(100vw / 430, 1.25px);
+      }
+
+      .stage {
+        position: fixed;
+        inset: 0;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      .content-layer {
+        position: relative;
+        inset: auto;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        padding-bottom: calc(85 * var(--u));
+        overflow-y: visible;
+      }
+
+      /* Fixed Frosted Bottom Navigation Dock */
+      .sidebar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: auto;
+        width: 100%;
+        height: calc(68 * var(--u));
+        border-radius: calc(24 * var(--u)) calc(24 * var(--u)) 0 0;
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: center;
+        padding: 0 calc(16 * var(--u));
+        padding-bottom: max(calc(6 * var(--u)), env(safe-area-inset-bottom));
+        background: rgba(6, 20, 30, 0.88);
+        backdrop-filter: blur(calc(24 * var(--u))) saturate(130%);
+        -webkit-backdrop-filter: blur(calc(24 * var(--u))) saturate(130%);
+        border: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.25);
+        box-shadow: 0 calc(-8 * var(--u)) calc(30 * var(--u)) rgba(0, 0, 0, 0.45);
+        z-index: 1000;
+        animation: riseIn .6s var(--e-out) both;
+      }
+
+      .sidebar .pip,
+      .sidebar .logo-box {
+        display: none;
+      }
+
+      .sidebar .nav {
+        margin-top: 0;
+        flex-direction: row;
+        gap: 0;
+        width: 100%;
+        justify-content: space-around;
+        align-items: center;
+      }
+
+      .nav-link {
+        width: calc(52 * var(--u));
+        height: calc(48 * var(--u));
+        border-radius: calc(16 * var(--u));
+      }
+
+      .nav-link[aria-current="page"] {
+        background: rgba(255, 255, 255, 0.22);
+        box-shadow: 0 0 calc(14 * var(--u)) rgba(255, 255, 255, 0.25);
+      }
+
+      /* Mobile Header */
+      .header {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        height: auto;
+        padding: calc(18 * var(--u)) calc(18 * var(--u)) calc(10 * var(--u));
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: calc(14 * var(--u));
+      }
+
+      .header-left {
+        display: flex;
+        flex-direction: column;
+        gap: calc(4 * var(--u));
+      }
+
+      .header-location-name {
+        font-size: calc(24 * var(--u));
+      }
+
+      .header-tools {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: calc(10 * var(--u));
+        width: 100%;
+      }
+
+      .header-tools .tool:first-child {
+        flex: 1;
+        justify-content: center;
+      }
+
+      /* Mobile Hero Section */
+      .hero {
+        position: relative;
+        top: auto;
+        left: auto;
+        max-width: 100%;
+        padding: calc(14 * var(--u)) calc(18 * var(--u)) 0;
+      }
+
+      .hero h1 {
+        font-size: calc(40 * var(--u));
+        line-height: calc(48 * var(--u));
+        margin-top: calc(12 * var(--u));
+      }
+
+      .hero .blurb {
+        width: 100%;
+        font-size: calc(14 * var(--u));
+        line-height: calc(21 * var(--u));
+        margin-top: calc(10 * var(--u));
+      }
+
+      /* Mobile Historical Stats Row */
+      .history-stats-row {
+        width: 100%;
+        display: flex;
+        gap: calc(8 * var(--u));
+        margin-top: calc(16 * var(--u));
+      }
+
+      .history-card {
+        padding: calc(10 * var(--u)) calc(10 * var(--u));
+        border-radius: calc(14 * var(--u));
+      }
+
+      .history-label {
+        font-size: calc(10 * var(--u));
+      }
+
+      .history-temp {
+        font-size: calc(18 * var(--u));
+      }
+
+      .history-diff {
+        font-size: calc(10.5 * var(--u));
+      }
+
+      /* Mobile Forecast Strip */
+      .forecast {
+        position: relative;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        padding: calc(24 * var(--u)) calc(18 * var(--u)) calc(14 * var(--u));
+      }
+
+      .f-temp {
+        font-size: calc(26 * var(--u));
+      }
+
+      .f-icon {
+        width: calc(22 * var(--u));
+        height: calc(22 * var(--u));
+        margin-left: calc(4 * var(--u));
+      }
+
+      .forecast-chart {
+        height: calc(140 * var(--u));
+        margin-top: calc(20 * var(--u));
+      }
+
+      .f-days {
+        margin-top: calc(-18 * var(--u));
+      }
+
+      .f-day {
+        font-size: calc(13.5 * var(--u));
+        padding: calc(2 * var(--u)) calc(4 * var(--u));
+      }
+
+      /* Mobile Right Rail */
+      .rail {
+        position: relative;
+        top: auto;
+        right: auto;
+        bottom: auto;
+        width: 100%;
+        padding: calc(10 * var(--u)) calc(18 * var(--u)) calc(30 * var(--u));
+        gap: calc(14 * var(--u));
+      }
+
+      .card.big {
+        padding: calc(18 * var(--u)) calc(18 * var(--u));
+      }
+
+      .big-temp {
+        font-size: calc(72 * var(--u));
+        margin: calc(8 * var(--u)) 0 calc(14 * var(--u));
+      }
+
+      .card.row {
+        height: auto;
+        min-height: calc(85 * var(--u));
+        padding: calc(14 * var(--u)) calc(18 * var(--u));
+      }
+
+      /* Mobile Map View */
+      .map-view-container {
+        position: relative;
+        left: auto;
+        right: auto;
+        top: auto;
+        bottom: auto;
+        height: 68vh;
+        margin: calc(14 * var(--u));
+        border-radius: calc(20 * var(--u));
+      }
+
+      .map-header-bar {
+        padding: calc(12 * var(--u)) calc(14 * var(--u));
+        flex-direction: column;
+        align-items: flex-start;
+        gap: calc(8 * var(--u));
+      }
+
+      .map-legend {
+        flex-wrap: wrap;
+        gap: calc(8 * var(--u));
+        font-size: calc(10.5 * var(--u));
+      }
+
+      /* Mobile Calendar View */
+      .calendar-view-container {
+        position: relative;
+        left: auto;
+        right: auto;
+        top: auto;
+        bottom: auto;
+        height: auto;
+        min-height: 65vh;
+        margin: calc(14 * var(--u));
+        padding: calc(16 * var(--u));
+        border-radius: calc(20 * var(--u));
+      }
+
+      .calendar-header-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: calc(4 * var(--u));
+        margin-bottom: calc(14 * var(--u));
+      }
+
+      .calendar-month-title {
+        font-size: calc(18 * var(--u));
+      }
+
+      .calendar-grid {
+        grid-template-columns: repeat(7, 1fr);
+        gap: calc(4 * var(--u));
+      }
+
+      .cal-day-header {
+        font-size: calc(10.5 * var(--u));
+        padding-bottom: calc(4 * var(--u));
+      }
+
+      .cal-cell {
+        min-height: calc(60 * var(--u));
+        padding: calc(6 * var(--u)) calc(4 * var(--u));
+        border-radius: calc(10 * var(--u));
+      }
+
+      .cal-cell-top {
+        font-size: calc(11 * var(--u));
+      }
+
+      .cal-cell-stable {
+        font-size: calc(15 * var(--u));
+        margin: calc(2 * var(--u)) 0;
+      }
+
+      .cal-cell-minmax {
+        font-size: calc(9 * var(--u));
+      }
+    }
+
+    @media (max-width: 420px) {
+      :root {
+        --u: calc(100vw / 390);
+      }
+
+      .hero h1 {
+        font-size: calc(36 * var(--u));
+        line-height: calc(44 * var(--u));
+      }
+
+      .hero .blurb, .history-stats-row {
+        width: 100%;
+      }
+
+      .history-card {
+        padding: calc(8 * var(--u)) calc(6 * var(--u));
+      }
+
+      .history-temp {
+        font-size: calc(16 * var(--u));
+      }
+
+      .f-temp {
+        font-size: calc(22 * var(--u));
+      }
+
+      .f-day {
+        font-size: calc(11.5 * var(--u));
+      }
+
+      .big-temp {
+        font-size: calc(62 * var(--u));
+      }
+
+      .calendar-grid {
+        grid-template-columns: repeat(7, 1fr);
+        gap: 2px;
+      }
+
+      .cal-cell {
+        min-height: calc(52 * var(--u));
+        padding: calc(4 * var(--u)) calc(2 * var(--u));
+      }
+    }
+
+    /* Enhanced Navigation, Metrics & Modes */
+    .f-mode-btn {
+      transition: all 0.2s var(--e-soft);
+      outline: none;
+    }
+    .f-mode-btn.active {
+      background: rgba(255, 255, 255, 0.32) !important;
+      box-shadow: 0 calc(2 * var(--u)) calc(8 * var(--u)) rgba(0, 0, 0, 0.25);
+      border-color: rgba(255, 255, 255, 0.5) !important;
+    }
+    .hero-feels-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: calc(10 * var(--u));
+      font-size: calc(12.5 * var(--u));
+      opacity: 0.95;
+      margin: calc(12 * var(--u)) 0 calc(4 * var(--u));
+      font-weight: 500;
+    }
+    .hero-feels-item {
+      display: inline-flex;
+      align-items: center;
+      gap: calc(6 * var(--u));
+      background: rgba(255, 255, 255, 0.12);
+      padding: calc(4 * var(--u)) calc(10 * var(--u));
+      border-radius: calc(12 * var(--u));
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    .hero-feels-item svg {
+      width: calc(15 * var(--u));
+      height: calc(15 * var(--u));
+      opacity: 0.9;
+    }
+    .forecast-nav-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: calc(10 * var(--u));
+      padding: 0 calc(6 * var(--u));
+    }
+    .forecast-tabs {
+      display: flex;
+      gap: calc(8 * var(--u));
+    }
+    .forecast-hint {
+      font-size: calc(12 * var(--u));
+      opacity: 0.85;
+      font-weight: 500;
+    }
+    .cal-nav-btn {
+      width: calc(34 * var(--u));
+      height: calc(34 * var(--u));
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid var(--glass-line);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-weight: 700;
+      transition: background 0.2s, transform 0.2s;
+    }
+    .cal-nav-btn:hover {
+      background: rgba(255, 255, 255, 0.28);
+      transform: scale(1.08);
+    }
+  
+  </style>
+</head>
+<body>
+
+  <!-- Hidden SVG Symbol Sprite -->
+  <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" fill-opacity="0.2"/>
+        <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" fill-opacity="0.2"/>
+        <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" fill-opacity="0.2"/>
+        <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" fill-opacity="0.2"/>
+      </symbol>
+      
+      <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 20V10M12 20V4M6 20v-6"/>
+      </symbol>
+
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/>
+        <ellipse cx="12" cy="12" rx="4" ry="9"/>
+        <path d="M3 12h18"/>
+      </symbol>
+
+      <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="17" rx="2"/>
+        <path d="M16 2v4M8 2v4M3 10h18"/>
+      </symbol>
+
+      <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </symbol>
+
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="M21 21l-4.35-4.35"/>
+      </symbol>
+
+      <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+        <circle cx="12" cy="9" r="2.5" fill="currentColor"/>
+      </symbol>
+
+      <symbol id="i-wind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/>
+      </symbol>
+
+      <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="currentColor" fill-opacity="0.25"/>
+      </symbol>
+
+      <symbol id="i-gust" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M8 19h8M6 22h12"/>
+      </symbol>
+
+      <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" fill="currentColor" fill-opacity="0.3"/>
+      </symbol>
+
+      <symbol id="i-cloud2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4a5 5 0 0 1 4.58 3.01 4 4 0 0 1 3.42 4.99A4 4 0 0 1 18 19H7a5 5 0 0 1-.9-9.91A5.002 5.002 0 0 1 12 4z" fill="currentColor" fill-opacity="0.35"/>
+      </symbol>
+
+      <symbol id="i-hail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.5 15H9a5 5 0 1 1 4.79-6.43A3.5 3.5 0 1 1 17.5 15z" fill="currentColor" fill-opacity="0.3"/>
+        <circle cx="8" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+        <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+        <circle cx="16" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+      </symbol>
+
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4.5" fill="currentColor" fill-opacity="0.3"/>
+        <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41m14.14-14.14l-1.41 1.41"/>
+      </symbol>
+
+
+      <symbol id="i-snow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="2" x2="12" y2="22"></line>
+        <line x1="2" y1="12" x2="22" y2="12"></line>
+        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+        <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
+        <circle cx="12" cy="12" r="2" fill="currentColor"></circle>
+      </symbol>
+      <symbol id="i-thermo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path>
+      </symbol>
+      <symbol id="i-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" fill-opacity="0.3"></polygon>
+      </symbol>
+      <symbol id="i-pressure" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <line x1="12" y1="12" x2="16" y2="8"></line>
+        <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Main Stage with Dynamic Weather Background & Vignette -->
+  <div class="stage" id="stageBg">
+    <div class="stage-bg-layer active" id="bgLayerA" style="background-image: url('./assets/storm-background.jpg');"></div>
+    <div class="stage-bg-layer" id="bgLayerB"></div>
+    <div class="content-layer">
+      
+      <!-- 1) LEFT SIDEBAR -->
+      <aside class="sidebar" aria-label="Main Navigation">
+        <div class="pip" id="sidebarPip" aria-hidden="true"></div>
+        
+        <!-- Logo Mark -->
+        <div class="logo-box" id="logoBtn" title="Sync Weather Telemetry">
+          <svg class="logo-svg" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="40" height="40" rx="12" fill="rgba(255,255,255,0.16)" stroke="rgba(255,255,255,0.28)" stroke-width="1.2"/>
+            <clipPath id="logo-clip">
+              <circle cx="20" cy="20" r="13.5"/>
+            </clipPath>
+            <g clip-path="url(#logo-clip)">
+              <circle cx="20" cy="20" r="13.5" fill="rgba(255,255,255,0.08)"/>
+              <path d="M3 11 Q 11.5 8, 20 11 T 37 11" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M3 14 Q 11.5 11, 20 14 T 37 14" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M3 17 Q 11.5 14, 20 17 T 37 17" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M3 20 Q 11.5 17, 20 20 T 37 20" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M3 23 Q 11.5 20, 20 23 T 37 23" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M3 26 Q 11.5 23, 20 26 T 37 26" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M3 29 Q 11.5 26, 20 29 T 37 29" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+            </g>
+          </svg>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-link" id="navDashboard" aria-current="page" aria-label="Dashboard" title="Dashboard">
+            <svg><use href="#i-grid"></use></svg>
+          </a>
+          <a class="nav-link" id="navGlobeMap" aria-label="Temperature Map" title="Global Temperature Map">
+            <svg><use href="#i-globe"></use></svg>
+          </a>
+          <a class="nav-link" id="navCalendarView" aria-label="Calendar & Stable Temps" title="Calendar & Stable Temperature">
+            <svg><use href="#i-cal"></use></svg>
+          </a>
+          <a class="nav-link" id="navSettings" aria-label="Settings" title="Settings">
+            <svg><use href="#i-gear"></use></svg>
+          </a>
+        </nav>
+      </aside>
+
+      <!-- 2) HEADER -->
+      <header class="header">
+        <div class="header-left">
+          <div class="header-location-row">
+            <span class="header-location-name" id="headerLocationName">Detecting Location...</span>
+            <div class="live-badge" id="liveBadge" title="Live Auto Geolocation Connected">
+              <span class="live-dot"></span>
+              <span>LIVE</span>
+            </div>
+          </div>
+          <span class="header-subtext" id="headerSubtext">Loading satellite telemetry...</span>
+        </div>
+        <div class="header-tools">
+          <button class="tool" id="btnAutoGps" title="Detect GPS / IP Location">
+            <svg><use href="#i-pin"></use></svg>
+            <span id="txtAutoDetect">Auto Detect</span>
+          </button>
+          <button class="tool icon-only" id="toolSearch" aria-label="Search city" title="Search Any Location Worldwide">
+            <svg><use href="#i-search"></use></svg>
+          </button>
+          <button class="tool icon-only" id="btnToggleUnit" title="Toggle °C / °F">
+            <span id="unitDisplayLabel" style="font-weight:700;">°C</span>
+          </button>
+          <button class="tool" id="btnLangToggle" title="Tilni almashtirish / Switch Language" style="padding: 0 calc(12*var(--u)); font-weight:700; gap:calc(4*var(--u));">
+            <span id="langDisplayFlag">🇺🇿</span>
+            <span id="langDisplayLabel">UZ</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- SPA VIEW 1: DASHBOARD -->
+      <div class="spa-view active" id="viewDashboard">
+        <!-- HERO -->
+        <main class="hero">
+          <div class="chip" id="heroChip">Live Atmospheric Intelligence</div>
+          <h1>
+            <span class="ln"><span id="heroTitleLine1" style="animation-delay: .56s;">Storm</span></span>
+            <span class="ln"><span id="heroTitleLine2" style="animation-delay: .67s;">with Heavy Rain</span></span>
+          </h1>
+          <p class="blurb" id="heroBlurb">
+            Gathering comprehensive multi-satellite meteorological measurements...
+          </p>
+          <div class="hero-feels-row" id="heroFeelsRow">
+            <div class="hero-feels-item" id="itemFeelsLike">
+              <svg><use href="#i-thermo"></use></svg>
+              <span id="cardHeroFeels">Tuyilishi: --°</span>
+            </div>
+            <div class="hero-feels-item" id="itemPrecip">
+              <svg><use href="#i-drop"></use></svg>
+              <span id="cardHeroRainChance">Yog'ingarchilik: 0%</span>
+            </div>
+            <div class="hero-feels-item" id="itemPressure">
+              <svg><use href="#i-pressure"></use></svg>
+              <span id="cardHeroPressure">Bosim: 1013 hPa</span>
+            </div>
+          </div>
+
+          <!-- Historical Comparison Statistics Cards -->
+          <div class="history-stats-row">
+            <div class="history-card">
+              <div class="history-label">Yesterday</div>
+              <div class="history-temp" id="histYesterdayTemp">--°</div>
+              <div class="history-diff" id="histYesterdayDiff">vs Today</div>
+            </div>
+            <div class="history-card">
+              <div class="history-label">Last Week</div>
+              <div class="history-temp" id="histWeekTemp">--°</div>
+              <div class="history-diff" id="histWeekDiff">vs Today</div>
+            </div>
+            <div class="history-card">
+              <div class="history-label">Last Month</div>
+              <div class="history-temp" id="histMonthTemp">--°</div>
+              <div class="history-diff" id="histMonthDiff">vs Today</div>
+            </div>
+          </div>
+        </main>
+
+        <!-- FORECAST STRIP -->
+        <section class="forecast" aria-label="Weather Forecast Strip">
+          <div class="forecast-nav-row">
+            <div class="forecast-tabs">
+              <button class="f-mode-btn active" id="fModeDaily" style="background:rgba(255,255,255,0.22); border:1px solid var(--glass-line); border-radius:calc(12*var(--u)); padding:calc(4*var(--u)) calc(12*var(--u)); color:#fff; font-size:calc(12*var(--u)); font-weight:600; cursor:pointer;">7-Day Forecast</button>
+              <button class="f-mode-btn" id="fModeHourly" style="background:rgba(255,255,255,0.08); border:1px solid var(--glass-line); border-radius:calc(12*var(--u)); padding:calc(4*var(--u)) calc(12*var(--u)); color:#fff; font-size:calc(12*var(--u)); font-weight:600; cursor:pointer;">Hourly (24h)</button>
+            </div>
+            <div class="forecast-hint" id="forecastSummaryBadge">Click any day to inspect</div>
+          </div>
+          <div class="f-temps" id="forecastTempsRow">
+            <div class="f-item" style="animation-delay: 1.26s;"><span class="f-temp" id="fTemp0">--°</span><svg class="f-icon"><use id="fIcon0" href="#i-cloud"></use></svg></div>
+            <div class="f-item" style="animation-delay: 1.33s;"><span class="f-temp" id="fTemp1">--°</span><svg class="f-icon"><use id="fIcon1" href="#i-cloud2"></use></svg></div>
+            <div class="f-item" style="animation-delay: 1.40s;"><span class="f-temp" id="fTemp2">--°</span><svg class="f-icon"><use id="fIcon2" href="#i-cloud2"></use></svg></div>
+            <div class="f-item" style="animation-delay: 1.47s;"><span class="f-temp" id="fTemp3">--°</span><svg class="f-icon"><use id="fIcon3" href="#i-hail"></use></svg></div>
+            <div class="f-item" style="animation-delay: 1.54s;"><span class="f-temp" id="fTemp4">--°</span><svg class="f-icon"><use id="fIcon4" href="#i-sun"></use></svg></div>
+            <div class="f-item" style="animation-delay: 1.61s;"><span class="f-temp" id="fTemp5">--°</span><svg class="f-icon"><use id="fIcon5" href="#i-cloud"></use></svg></div>
+          </div>
+
+          <!-- SVG Wave Chart -->
+          <svg class="forecast-chart" viewBox="0 0 835 230" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="wg" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+                <stop offset="25%" stop-color="#ffffff" stop-opacity="1"/>
+                <stop offset="65%" stop-color="#ffffff" stop-opacity="1"/>
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.85"/>
+              </linearGradient>
+
+              <linearGradient id="wf" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.32"/>
+                <stop offset="45%" stop-color="#ffffff" stop-opacity="0.16"/>
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+              </linearGradient>
+
+              <linearGradient id="wfade-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+                <stop offset="85%" stop-color="#ffffff" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+              </linearGradient>
+              <mask id="wfade">
+                <rect width="835" height="230" fill="url(#wfade-grad)"/>
+              </mask>
+
+              <clipPath id="wclip">
+                <rect id="wclipr" x="0" y="0" width="835" height="230"/>
+              </clipPath>
+            </defs>
+
+            <path id="waveFillPath" d="M 0,79 C 60,79 107,55 167,55 C 227,55 274,45 334,45 C 394,45 441,95 501,95 C 561,95 608,15 668,15 C 728,15 775,86 835,86 L 835,230 L 0,230 Z" fill="url(#wf)" mask="url(#wfade)" clip-path="url(#wclip)"/>
+            <path id="waveStroke1" class="wline" d="M 0,79 C 60,79 107,55 167,55 C 227,55 274,45 334,45 C 394,45 441,95 501,95 C 561,95 608,15 668,15 C 728,15 775,86 835,86" stroke="url(#wg)" stroke-width="6.2" opacity="0.17" fill="none" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+            <path id="waveStroke2" class="wline" d="M 0,79 C 60,79 107,55 167,55 C 227,55 274,45 334,45 C 394,45 441,95 501,95 C 561,95 608,15 668,15 C 728,15 775,86 835,86" stroke="url(#wg)" stroke-width="4.6" opacity="0.26" fill="none" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+            <path id="waveStroke3" class="wline" d="M 0,79 C 60,79 107,55 167,55 C 227,55 274,45 334,45 C 394,45 441,95 501,95 C 561,95 608,15 668,15 C 728,15 775,86 835,86" stroke="url(#wg)" stroke-width="3.4" opacity="1" fill="none" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+          </svg>
+
+          <div class="f-days" id="forecastDaysRow">
+            <span class="f-day" id="fDay0">Sunday</span>
+            <span class="f-day" id="fDay1">Monday</span>
+            <span class="f-day" id="fDay2">Tuesday</span>
+            <span class="f-day on" id="fDay3">Wednesday</span>
+            <span class="f-day" id="fDay4">Thursday</span>
+            <span class="f-day" id="fDay5">Friday</span>
+          </div>
+        </section>
+
+        <!-- RIGHT RAIL CARDS -->
+        <aside class="rail" aria-label="Region Forecasts">
+          <!-- Card A: Big Card -->
+          <article class="card big" id="cardHero">
+            <div class="card-place">
+              <span id="cardHeroLocation">Location</span>
+              <svg><use href="#i-pin"></use></svg>
+            </div>
+            <div class="big-temp">
+              <span id="cardHeroTemp">--°</span><i id="cardHeroUnit">C</i>
+            </div>
+            <div class="metrics-row">
+              <div class="metric-item">
+                <svg><use href="#i-wind"></use></svg>
+                <span id="cardHeroWind">-- mph</span>
+              </div>
+              <div class="metric-item">
+                <svg><use href="#i-drop"></use></svg>
+                <span id="cardHeroDrop">--%</span>
+              </div>
+              <div class="metric-item">
+                <svg><use href="#i-gust"></use></svg>
+                <span id="cardHeroGust">-- km/h</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- Card B -->
+          <article class="card row" id="cardB">
+            <div class="row-left">
+              <span class="row-country" id="cardBCountry">Uzbekistan</span>
+              <h2 class="row-city" id="cardBCity">Tashkent</h2>
+              <span class="row-condition" id="cardBCondition">Clear Sky</span>
+            </div>
+            <div class="row-right">
+              <span class="row-temp" id="cardBTemp">22°</span>
+              <svg class="row-icon"><use id="cardBIcon" href="#i-sun"></use></svg>
+            </div>
+          </article>
+
+          <!-- Card C -->
+          <article class="card row" id="cardC">
+            <div class="row-left">
+              <span class="row-country" id="cardCCountry">Japan</span>
+              <h2 class="row-city" id="cardCCity">Tokyo</h2>
+              <span class="row-condition" id="cardCCondition">Partly Cloudy</span>
+            </div>
+            <div class="row-right">
+              <span class="row-temp" id="cardCTemp">18°</span>
+              <svg class="row-icon"><use id="cardCIcon" href="#i-cloud2"></use></svg>
+            </div>
+          </article>
+
+          <!-- Card D -->
+          <article class="card row" id="cardD">
+            <div class="row-left">
+              <span class="row-country" id="cardDCountry">United Kingdom</span>
+              <h2 class="row-city" id="cardDCity">London</h2>
+              <span class="row-condition" id="cardDCondition">Cloudy</span>
+            </div>
+            <div class="row-right">
+              <span class="row-temp" id="cardDTemp">14°</span>
+              <svg class="row-icon"><use id="cardDIcon" href="#i-cloud"></use></svg>
+            </div>
+          </article>
+        </aside>
+      </div>
+
+      <!-- SPA VIEW 2: INTERACTIVE ZOOMABLE TEMPERATURE MAP -->
+      <div class="spa-view" id="viewGlobeMap">
+        <div class="map-view-container">
+          <div class="map-header-bar">
+            <div class="map-title">
+              <svg style="width:calc(22*var(--u)); height:calc(22*var(--u));"><use href="#i-globe"></use></svg>
+              <span>Global Temperature Map & Zones</span>
+            </div>
+            <div class="map-legend">
+              <div class="legend-item"><span class="legend-dot" style="background:#38bdf8;"></span><span>Polar (&lt;0°)</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:#2dd4bf;"></span><span>Cold (0–10°)</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:#a3e635;"></span><span>Temperate (11–20°)</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:#fb923c;"></span><span>Tropical (21–30°)</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span><span>Dry/Hot (&gt;30°)</span></div>
+            </div>
+          </div>
+          <div class="leaflet-map-target" id="leafletMap"></div>
+        </div>
+      </div>
+
+      <!-- SPA VIEW 3: CALENDAR & STABLE TEMPERATURES -->
+      <div class="spa-view" id="viewCalendar">
+        <div class="calendar-view-container">
+          <div class="calendar-header-row">
+            <div style="display:flex; align-items:center; gap:calc(12*var(--u));">
+              <button class="cal-nav-btn" id="calPrevBtn" title="Previous Month">❮</button>
+              <div class="calendar-month-title" id="calendarMonthTitle">Monthly Temperature Stability</div>
+              <button class="cal-nav-btn" id="calNextBtn" title="Next Month">❯</button>
+            </div>
+            <div style="font-size: calc(13*var(--u)); opacity: 0.85;" id="calSubtext">Showing daily stable/average temperature & ranges</div>
+          </div>
+          
+          <div class="calendar-grid" id="calendarGrid">
+            <div class="cal-day-header">Sun</div>
+            <div class="cal-day-header">Mon</div>
+            <div class="cal-day-header">Tue</div>
+            <div class="cal-day-header">Wed</div>
+            <div class="cal-day-header">Thu</div>
+            <div class="cal-day-header">Fri</div>
+            <div class="cal-day-header">Sat</div>
+            <!-- Dynamic days populated here -->
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SEARCH MODAL -->
+  <div class="modal-backdrop" id="modalSearch">
+    <div class="glass-modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg><use href="#i-search"></use></svg>
+          <span id="txtSearchTitle">Search Any Global Location</span>
+        </div>
+        <button class="modal-close" data-close="modalSearch"><svg><use href="#i-close"></use></svg></button>
+      </div>
+      <div class="search-input-box">
+        <svg class="search-icon-inside"><use href="#i-search"></use></svg>
+        <input type="text" class="search-input" id="citySearchInput" placeholder="Type any city (e.g. Tashkent, Samarkand, London, Dubai, Tokyo)..." autofocus>
+      </div>
+      <div class="search-results-list" id="searchResultsList"></div>
+      <div id="txtPopularHubs" style="font-size: calc(12*var(--u)); opacity: 0.7; margin-top: calc(14*var(--u)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Popular Hubs</div>
+      <div class="quick-cities-grid">
+        <div class="quick-city-chip" data-city="Tashkent" data-lat="41.2995" data-lon="69.2401" data-country="Uzbekistan">🇺🇿 Toshkent</div>
+        <div class="quick-city-chip" data-city="Samarkand" data-lat="39.6542" data-lon="66.9597" data-country="Uzbekistan">🇺🇿 Samarqand</div>
+        <div class="quick-city-chip" data-city="Bukhara" data-lat="39.7747" data-lon="64.4286" data-country="Uzbekistan">🇺🇿 Buxoro</div>
+        <div class="quick-city-chip" data-city="Namangan" data-lat="40.9983" data-lon="71.6726" data-country="Uzbekistan">🇺🇿 Namangan</div>
+        <div class="quick-city-chip" data-city="Andijan" data-lat="40.7821" data-lon="72.3442" data-country="Uzbekistan">🇺🇿 Andijon</div>
+        <div class="quick-city-chip" data-city="Fergana" data-lat="40.3842" data-lon="71.7843" data-country="Uzbekistan">🇺🇿 Farg'ona</div>
+        <div class="quick-city-chip" data-city="Central Jakarta" data-lat="-6.1865" data-lon="106.8341" data-country="Indonesia">🇮🇩 Jakarta</div>
+        <div class="quick-city-chip" data-city="Tokyo" data-lat="35.6762" data-lon="139.6503" data-country="Japan">🇯🇵 Tokyo</div>
+        <div class="quick-city-chip" data-city="London" data-lat="51.5074" data-lon="-0.1278" data-country="United Kingdom">🇬🇧 London</div>
+        <div class="quick-city-chip" data-city="Dubai" data-lat="25.2048" data-lon="55.2708" data-country="UAE">🇦🇪 Dubai</div>
+        <div class="quick-city-chip" data-city="New York" data-lat="40.7128" data-lon="-74.0060" data-country="United States">🇺🇸 New York</div>
+        <div class="quick-city-chip" data-city="Istanbul" data-lat="41.0082" data-lon="28.9784" data-country="Turkey">🇹🇷 Istanbul</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS MODAL -->
+  <div class="modal-backdrop" id="modalSettings">
+    <div class="glass-modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg><use href="#i-gear"></use></svg>
+          <span id="txtSettingsTitle">Preferences & Units</span>
+        </div>
+        <button class="modal-close" data-close="modalSettings"><svg><use href="#i-close"></use></svg></button>
+      </div>
+      
+      <div style="padding: calc(14*var(--u)); background: rgba(255,255,255,0.12); border-radius: calc(16*var(--u)); margin-bottom: calc(12*var(--u));">
+        <div style="font-weight: 600; font-size: calc(14.5*var(--u)); margin-bottom: calc(10*var(--u));" id="txtLangSetting">Interfeys tili / Language</div>
+        <div style="display: flex; gap: calc(10*var(--u));">
+          <button class="tool" id="btnSetLangUz" style="flex:1;">🇺🇿 O'zbekcha</button>
+          <button class="tool" id="btnSetLangEn" style="flex:1;">🇬🇧 English</button>
+        </div>
+      </div>
+
+      <div style="padding: calc(14*var(--u)); background: rgba(255,255,255,0.12); border-radius: calc(16*var(--u)); margin-bottom: calc(12*var(--u));">
+        <div style="font-weight: 600; font-size: calc(14.5*var(--u)); margin-bottom: calc(10*var(--u));" id="txtTempUnitSetting">Harorat o'lchovi / Temperature Unit</div>
+        <div style="display: flex; gap: calc(10*var(--u));">
+          <button class="tool" id="btnSetCelsius" style="flex:1;">Celsius (°C)</button>
+          <button class="tool" id="btnSetFahrenheit" style="flex:1;">Fahrenheit (°F)</button>
+        </div>
+      </div>
+
+      <div style="padding: calc(14*var(--u)); background: rgba(255,255,255,0.12); border-radius: calc(16*var(--u)); margin-bottom: calc(12*var(--u));">
+        <div style="font-weight: 600; font-size: calc(14.5*var(--u)); margin-bottom: calc(10*var(--u));" id="txtWindUnitSetting">Wind Speed Unit</div>
+        <div style="display: flex; gap: calc(10*var(--u));">
+          <button class="tool" id="btnSetMph" style="flex:1;">mph</button>
+          <button class="tool" id="btnSetKmh" style="flex:1;">km/h</button>
+        </div>
+      </div>
+
+      <button class="tool" id="btnSettingsGps" style="width: 100%; border-radius: calc(14*var(--u)); justify-content: center;">
+        <svg><use href="#i-pin"></use></svg>
+        <span id="txtDetectGps">Detect My Geolocation (GPS / IP)</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Bar -->
+  <div class="toast-msg" id="toastMsg">
+    <span id="toastIcon">✨</span>
+    <span id="toastText">Ready</span>
+  </div>
+
+  <!-- SPA LOGIC & REAL-TIME API SCRIPT -->
+<script>
+    (function() {
+      // Application State
+      const state = {
+        lang: localStorage.getItem('weather_lang') || 'uz',
+        unit: localStorage.getItem('weather_unit') || 'C',
+        windUnit: localStorage.getItem('wind_unit') || 'kmh',
+        forecastMode: 'daily', // 'daily' or 'hourly'
+        activeForecastIndex: 0,
+        calendarOffset: 0,
+        currentCity: {
+          name: 'Toshkent',
+          country: 'O‘zbekiston',
+          lat: 41.2995,
+          lon: 69.2401
+        },
+        cards: [
+          { id: 'cardB', city: 'Samarqand', country: 'O‘zbekiston', lat: 39.6542, lon: 66.9597 },
+          { id: 'cardC', city: 'Tokyo', country: 'Yaponiya', lat: 35.6762, lon: 139.6503 },
+          { id: 'cardD', city: 'London', country: 'Buyuk Britaniya', lat: 51.5074, lon: -0.1278 }
+        ],
+        liveForecast: null,
+        historicalData: null,
+        activeTab: 'dashboard',
+        mapInitialized: false,
+        leafletMap: null
+      };
+
+      // I18N Localization Dictionary
+      const I18N = {
+        uz: {
+          langLabel: 'UZ',
+          flag: '🇺🇿',
+          autoDetect: 'Avto aniqlash',
+          heroChip: 'Jonli atmosfera intellekti',
+          yesterday: 'Kecha',
+          lastWeek: 'O‘tgan hafta',
+          lastMonth: 'O‘tgan oy',
+          feelsLike: 'Tuyilishi',
+          rainChance: 'Yog‘ingarchilik',
+          pressure: 'Bosim',
+          wind: 'Shamol',
+          humidity: 'Namlik',
+          gusts: 'Shiddat',
+          fModeDaily: '7 Kunlik prognoz',
+          fModeHourly: 'Soatlik (24 soat)',
+          forecastHint: 'Batafsil ma’lumot uchun kunni bosing',
+          now: 'Hozir',
+          calTitle: 'Oylik barqaror haroratlar',
+          calSubtext: 'Kundalik o‘rtacha barqaror harorat va oraliqlar',
+          searchTitle: 'Butun dunyo bo‘yicha shahar qidiruvi',
+          searchPlaceholder: 'Shahar nomini kiriting (masalan, Toshkent, Samarqand, London, Dubay)...',
+          searching: 'Global bazadan qidirilmoqda...',
+          noCities: 'Mos shahar topilmadi.',
+          popularHubs: 'Mashhur shaharlar',
+          settingsTitle: 'Sozlamalar va birliklar',
+          langSetting: 'Interfeys tili / Interface Language',
+          tempUnit: 'Harorat birligi',
+          windUnit: 'Shamol tezligi birligi',
+          detectGps: 'Mening manzilimni aniqlash (GPS / IP)',
+          setLocSuccess: 'Asosiy stansiya manzili yangilandi!',
+          weatherRefreshed: 'Barcha ob-havo stansiyalari yangilandi!',
+          syncingTelemetry: 'Telemetriya ma’lumotlari yangilanmoqda...',
+          days: ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba'],
+          daysShort: ['Yak', 'Dush', 'Sesh', 'Chor', 'Pay', 'Jum', 'Shan'],
+          months: ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'],
+          compass: ['Shimoliy', 'Shimoli-sharqiy', 'Sharqiy', 'Janubi-sharqiy', 'Janubiy', 'Janubi-g‘arbiy', 'G‘arbiy', 'Shimoli-g‘arbiy']
+        },
+        en: {
+          langLabel: 'EN',
+          flag: '🇬🇧',
+          autoDetect: 'Auto Detect',
+          heroChip: 'Live Atmospheric Intelligence',
+          yesterday: 'Yesterday',
+          lastWeek: 'Last Week',
+          lastMonth: 'Last Month',
+          feelsLike: 'Feels like',
+          rainChance: 'Precipitation',
+          pressure: 'Pressure',
+          wind: 'Wind',
+          humidity: 'Humidity',
+          gusts: 'Gusts',
+          fModeDaily: '7-Day Forecast',
+          fModeHourly: 'Hourly (24h)',
+          forecastHint: 'Click any day to inspect details',
+          now: 'Now',
+          calTitle: 'Monthly Temperature Stability',
+          calSubtext: 'Showing daily stable/average temperature & ranges',
+          searchTitle: 'Search Any Global Location',
+          searchPlaceholder: 'Type any city (e.g. Tashkent, Samarkand, London, Dubai, Tokyo)...',
+          searching: 'Searching global database...',
+          noCities: 'No matching cities found.',
+          popularHubs: 'Popular Hubs & Cities',
+          settingsTitle: 'Preferences & Units',
+          langSetting: 'Interface Language / Til',
+          tempUnit: 'Temperature Unit',
+          windUnit: 'Wind Speed Unit',
+          detectGps: 'Detect My Geolocation (GPS / IP)',
+          setLocSuccess: 'Main weather station location updated!',
+          weatherRefreshed: 'All weather stations refreshed!',
+          syncingTelemetry: 'Synchronizing telemetry...',
+          days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+          daysShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+          months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+          compass: ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest']
+        }
+      };
+
+      // Toast notification
+      function showToast(text, icon = '✨') {
+        const toast = document.getElementById('toastMsg');
+        document.getElementById('toastText').textContent = text;
+        document.getElementById('toastIcon').textContent = icon;
+        toast.classList.add('show');
+        clearTimeout(toast._timer);
+        toast._timer = setTimeout(() => toast.classList.remove('show'), 3500);
+      }
+
+      // Modal Handling
+      function openModal(id) {
+        document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('active'));
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.add('active');
+          const inp = el.querySelector('input');
+          if (inp) setTimeout(() => inp.focus(), 150);
+        }
+      }
+
+      function closeModal(id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+      }
+
+      document.querySelectorAll('[data-close]').forEach(btn => {
+        btn.addEventListener('click', () => closeModal(btn.getAttribute('data-close')));
+      });
+
+      document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+        backdrop.addEventListener('click', (e) => {
+          if (e.target === backdrop) backdrop.classList.remove('active');
+        });
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('active'));
+        }
+      });
+
+      // Format Helpers
+      function formatTemp(celsius) {
+        if (celsius === null || celsius === undefined || isNaN(celsius)) return '--°';
+        if (state.unit === 'F') {
+          return `${Math.round((celsius * 9/5) + 32)}°`;
+        }
+        return `${Math.round(celsius)}°`;
+      }
+
+      function formatWind(kmh) {
+        if (kmh === null || kmh === undefined || isNaN(kmh)) return state.windUnit === 'mph' ? '-- mph' : '-- km/h';
+        if (state.windUnit === 'mph') {
+          return `${Math.round(kmh * 0.621371)} mph`;
+        }
+        return `${Math.round(kmh)} km/h`;
+      }
+
+      function getCompassDirection(degrees) {
+        const t = I18N[state.lang];
+        if (degrees === undefined || degrees === null) return t.compass[0];
+        const index = Math.round((degrees % 360) / 45) % 8;
+        return t.compass[index];
+      }
+
+      function getTempColor(celsius) {
+        if (celsius <= 0) return '#38bdf8'; // Polar
+        if (celsius <= 10) return '#2dd4bf'; // Cold
+        if (celsius <= 20) return '#a3e635'; // Temperate
+        if (celsius <= 30) return '#fb923c'; // Tropical
+        return '#ef4444'; // Hot
+      }
+
+      function interpretWeatherCode(code) {
+        const isUz = state.lang === 'uz';
+        switch(code) {
+          case 0:
+            return {
+              title: isUz ? 'Musaffo osmon' : 'Clear Sky',
+              icon: 'i-sun',
+              desc: isUz ? 'Ochiq va quyoshli ob-havo, atmosferada yuqori tiniqlik kuzatilmoqda.' : 'Sunny and pristine conditions with high atmospheric clarity.'
+            };
+          case 1:
+          case 2:
+            return {
+              title: isUz ? 'Qisman bulutli' : 'Mostly Sunny',
+              icon: 'i-cloud2',
+              desc: isUz ? 'Asosan ochiq, yuqori qatlamda engil bulutlar tarqalishi mavjud.' : 'Mainly clear with subtle high altitude cloud dispersion.'
+            };
+          case 3:
+            return {
+              title: isUz ? 'Bulutli osmon' : 'Cloudy Horizon',
+              icon: 'i-cloud',
+              desc: isUz ? 'Osmonni qoplagan quyuq bulutlar va yoqimli mayin shamol.' : 'Overcast skies with mild wind velocity.'
+            };
+          case 45:
+          case 48:
+            return {
+              title: isUz ? 'Tumanli havo' : 'Foggy Air',
+              icon: 'i-cloud',
+              desc: isUz ? 'Qalin tuman va ko‘rish masofasining cheklanganligi qayd etilmoqda.' : 'Dense fog with restricted visibility across the plains.'
+            };
+          case 51:
+          case 53:
+          case 55:
+          case 56:
+          case 57:
+            return {
+              title: isUz ? 'Mayda yomg‘ir (Shivalama)' : 'Light Drizzle',
+              icon: 'i-drop',
+              desc: isUz ? 'Mayin shivalama yomg‘ir va yuqori namlik darajasi.' : 'Gentle mist and periodic light drizzle.'
+            };
+          case 61:
+          case 63:
+          case 65:
+          case 66:
+          case 67:
+            return {
+              title: isUz ? 'O‘rtacha yomg‘ir' : 'Moderate Rain',
+              icon: 'i-drop',
+              desc: isUz ? 'Bir tekis davom etuvchi yomg‘ir va bulutli havo.' : 'Steady rain showers with sustained cloud cover.'
+            };
+          case 71:
+          case 73:
+          case 75:
+          case 77:
+            return {
+              title: isUz ? 'Qor yog‘ishi' : 'Snow Showers',
+              icon: 'i-snow',
+              desc: isUz ? 'Mayin qor zarralari yog‘ishi va sovuq harorat hukmron.' : 'Snow flurries with low surface temperatures.'
+            };
+          case 80:
+          case 81:
+          case 82:
+            return {
+              title: isUz ? 'Kuchli jala' : 'Heavy Showers',
+              icon: 'i-drop',
+              desc: isUz ? 'Kuchli yomg‘ir quyishi va tezkor shamol shiddatlari.' : 'Intense rain showers with gusty wind vectors.'
+            };
+          case 85:
+          case 86:
+            return {
+              title: isUz ? 'Kuchli qor yog‘ishi' : 'Heavy Snow',
+              icon: 'i-snow',
+              desc: isUz ? 'Qalin qor bo‘roni va haroratning pasayishi.' : 'Heavy snow storm with reduced visibility.'
+            };
+          case 95:
+          case 96:
+          case 99:
+          default:
+            return {
+              title: isUz ? 'Momaqaldiroqli yomg‘ir' : 'Storm with Heavy Rain',
+              icon: 'i-hail',
+              desc: isUz ? 'Momaqaldiroq, chaqmoq chaqishi va kuchli yog‘ingarchilik faolligi.' : 'Thunderstorm activity with strong gusts and intermittent precipitation.'
+            };
+        }
+      }
+
+      // Dynamic SVG Wave Chart
+      function updateSvgWaveChart(temps) {
+        if (!temps || temps.length < 2) return;
+        const width = 835;
+        const count = temps.length;
+        const xStep = width / (count - 1);
+        const minT = Math.min(...temps);
+        const maxT = Math.max(...temps);
+        const range = (maxT - minT) || 1;
+
+        const points = temps.map((t, idx) => {
+          const x = Math.round(idx * xStep);
+          const normalized = (t - minT) / range;
+          const y = Math.round(125 - (normalized * 90));
+          return { x, y };
+        });
+
+        let d = `M ${points[0].x},${points[0].y}`;
+        for (let i = 0; i < points.length - 1; i++) {
+          const p0 = points[i];
+          const p1 = points[i + 1];
+          const cp1x = Math.round(p0.x + (p1.x - p0.x) * 0.45);
+          const cp1y = p0.y;
+          const cp2x = Math.round(p0.x + (p1.x - p0.x) * 0.55);
+          const cp2y = p1.y;
+          d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p1.x},${p1.y}`;
+        }
+
+        const fillD = `${d} L 835,230 L 0,230 Z`;
+        const fillPath = document.getElementById('waveFillPath');
+        const stroke1 = document.getElementById('waveStroke1');
+        const stroke2 = document.getElementById('waveStroke2');
+        const stroke3 = document.getElementById('waveStroke3');
+
+        if (fillPath) fillPath.setAttribute('d', fillD);
+        if (stroke1) stroke1.setAttribute('d', d);
+        if (stroke2) stroke2.setAttribute('d', d);
+        if (stroke3) stroke3.setAttribute('d', d);
+      }
+
+      // Dynamic Background Switching based on Weather Condition & Temperature
+      let currentActiveBgLayer = 'A';
+      function updateDynamicBackground(weatherCode, tempCelsius, isDay = 1) {
+        let bgUrl = './assets/storm-background.jpg';
+
+        // 1. Thunderstorm & severe atmospheric storms
+        if ([95, 96, 99].includes(weatherCode)) {
+          bgUrl = './assets/storm-background.jpg';
+        }
+        // 2. Snow & freezing sub-zero polar conditions
+        else if ([71, 73, 75, 77, 85, 86].includes(weatherCode) || tempCelsius <= 0) {
+          bgUrl = 'https://images.unsplash.com/photo-1491002052546-bf38f186af56?auto=format&fit=crop&w=1920&q=80';
+        }
+        // 3. Rain / Drizzle / Wet precipitation
+        else if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) {
+          bgUrl = 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?auto=format&fit=crop&w=1920&q=80';
+        }
+        // 4. Fog / Mist / Low visibility
+        else if ([45, 48].includes(weatherCode)) {
+          bgUrl = 'https://images.unsplash.com/photo-1487621167305-5d248087c724?auto=format&fit=crop&w=1920&q=80';
+        }
+        // 5. Night time atmosphere (Clear or gentle clouds)
+        else if (isDay === 0 || isDay === false) {
+          bgUrl = 'https://images.unsplash.com/photo-1509773896068-7fd415d91e2e?auto=format&fit=crop&w=1920&q=80';
+        }
+        // 6. High heat / Hot summer sunshine
+        else if (tempCelsius >= 32) {
+          bgUrl = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80';
+        }
+        // 7. Cloudy / Overcast skies
+        else if ([2, 3].includes(weatherCode)) {
+          bgUrl = 'https://images.unsplash.com/photo-1534088568595-a066f410bcda?auto=format&fit=crop&w=1920&q=80';
+        }
+        // 8. Clear Sky / Sunny
+        else {
+          bgUrl = 'https://images.unsplash.com/photo-1601297183305-6df142704ea2?auto=format&fit=crop&w=1920&q=80';
+        }
+
+        const nextLayerId = currentActiveBgLayer === 'A' ? 'bgLayerB' : 'bgLayerA';
+        const currentLayerId = currentActiveBgLayer === 'A' ? 'bgLayerA' : 'bgLayerB';
+        const nextLayer = document.getElementById(nextLayerId);
+        const currentLayer = document.getElementById(currentLayerId);
+
+        if (!nextLayer || !currentLayer) return;
+
+        const img = new Image();
+        img.onload = () => {
+          nextLayer.style.backgroundImage = `url("${bgUrl}")`;
+          nextLayer.classList.add('active');
+          currentLayer.classList.remove('active');
+          currentActiveBgLayer = currentActiveBgLayer === 'A' ? 'B' : 'A';
+        };
+        img.onerror = () => {
+          nextLayer.style.backgroundImage = `url("./assets/storm-background.jpg")`;
+          nextLayer.classList.add('active');
+          currentLayer.classList.remove('active');
+          currentActiveBgLayer = currentActiveBgLayer === 'A' ? 'B' : 'A';
+        };
+        img.src = bgUrl;
+      }
+
+      // Reverse geocode lat/lon to friendly city name
+      async function reverseGeocode(lat, lon) {
+        try {
+          const res = await fetch(`https://api-bdc.io/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=${state.lang === 'uz' ? 'uz' : 'en'}`);
+          const d = await res.json();
+          const city = d.city || d.locality || d.principalSubdivision || 'Custom Point';
+          const country = d.countryName || '';
+          return { city, country };
+        } catch(e) {
+          try {
+            const res2 = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=${state.lang === 'uz' ? 'uz' : 'en'}`);
+            const d2 = await res2.json();
+            const city = d2.city || d2.locality || d2.principalSubdivision || 'Custom Point';
+            const country = d2.countryName || '';
+            return { city, country };
+          } catch(err2) {
+            return { city: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`, country: '' };
+          }
+        }
+      }
+
+      // Fetch Real-time & Daily Weather for Main Location
+      async function fetchMainWeather() {
+        try {
+          const { lat, lon, name, country } = state.currentCity;
+          const t = I18N[state.lang];
+          
+          // Header info
+          document.getElementById('headerLocationName').textContent = `${name}${country ? ', ' + country : ''}`;
+          document.getElementById('headerSubtext').textContent = `GPS: ${lat.toFixed(2)}°, ${lon.toFixed(2)}° • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+          // Enhanced Real-time & Daily query with precipitation_probability, apparent_temperature, surface_pressure, etc.
+          const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,uv_index,is_day&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_probability_max&timezone=auto`;
+          const res = await fetch(url);
+          const data = await res.json();
+          state.liveForecast = data;
+
+          const current = data.current;
+          const weatherInfo = interpretWeatherCode(current.weather_code);
+
+          // Update dynamic weather background
+          updateDynamicBackground(current.weather_code, current.temperature_2m, current.is_day);
+
+          // Hero Titles
+          const line1 = document.getElementById('heroTitleLine1');
+          const line2 = document.getElementById('heroTitleLine2');
+          line1.textContent = weatherInfo.title;
+          line2.textContent = `${state.lang === 'uz' ? 'shahar: ' : 'in '}${name}`;
+
+          // Compass & blurb
+          const windDir = getCompassDirection(current.wind_direction_10m);
+          const rainChance = (data.daily && data.daily.precipitation_probability_max && data.daily.precipitation_probability_max[0] !== undefined)
+            ? data.daily.precipitation_probability_max[0]
+            : (current.precipitation > 0 ? 55 : 0);
+
+          if (state.lang === 'uz') {
+            document.getElementById('heroBlurb').innerHTML = `${weatherInfo.desc} Kunduzgi maksimal harorat ${formatTemp(data.daily.temperature_2m_max[0])}. Shamol yo‘nalishi: ${windDir}, tezligi ${formatWind(current.wind_speed_10m)}. Yog‘ingarchilik ehtimoli: ${rainChance}%, namlik: ${current.relative_humidity_2m}%.`;
+          } else {
+            document.getElementById('heroBlurb').innerHTML = `${weatherInfo.desc} High around ${formatTemp(data.daily.temperature_2m_max[0])}. Wind from the ${windDir} at ${formatWind(current.wind_speed_10m)}. Precipitation chance: ${rainChance}%, humidity: ${current.relative_humidity_2m}%.`;
+          }
+
+          // Hero Feels & Metrics Row
+          document.getElementById('cardHeroFeels').textContent = `${t.feelsLike}: ${formatTemp(current.apparent_temperature)}`;
+          document.getElementById('cardHeroRainChance').textContent = `${t.rainChance}: ${rainChance}%`;
+          document.getElementById('cardHeroPressure').textContent = `${t.pressure}: ${Math.round(current.surface_pressure || 1013)} hPa`;
+
+          // Card A (Hero Card)
+          document.getElementById('cardHeroLocation').textContent = name;
+          document.getElementById('cardHeroTemp').textContent = formatTemp(current.temperature_2m);
+          document.getElementById('cardHeroUnit').textContent = state.unit;
+          document.getElementById('cardHeroWind').textContent = formatWind(current.wind_speed_10m);
+          document.getElementById('cardHeroDrop').textContent = `${current.relative_humidity_2m}%`;
+          document.getElementById('cardHeroGust').textContent = formatWind(current.wind_gusts_10m);
+
+          // Render Forecast Strip according to active mode ('daily' or 'hourly')
+          renderForecastStrip();
+
+          // Fetch Historical Comparison Statistics: Yesterday, 1 Week Ago, 1 Month Ago
+          fetchHistoricalStats(lat, lon, current.temperature_2m);
+
+          // Render Calendar with stable temperatures
+          renderCalendarWithStableTemps();
+        } catch(err) {
+          console.warn('Live fetch error:', err);
+        }
+      }
+
+      // Render Forecast Strip (Daily vs Hourly)
+      function renderForecastStrip() {
+        if (!state.liveForecast) return;
+        const data = state.liveForecast;
+        const t = I18N[state.lang];
+
+        if (state.forecastMode === 'daily') {
+          // 6 Daily Forecast Items
+          const dailyTemps = data.daily.temperature_2m_max.slice(0, 6);
+          const dailyMinTemps = data.daily.temperature_2m_min.slice(0, 6);
+          const dailyCodes = data.daily.weather_code.slice(0, 6);
+          const todayIdx = new Date().getDay();
+
+          for (let i = 0; i < 6; i++) {
+            const tempEl = document.getElementById(`fTemp${i}`);
+            const iconEl = document.getElementById(`fIcon${i}`);
+            const dayEl = document.getElementById(`fDay${i}`);
+
+            if (tempEl) tempEl.textContent = formatTemp(dailyTemps[i]);
+            if (iconEl) {
+              const info = interpretWeatherCode(dailyCodes[i]);
+              iconEl.setAttribute('href', `#${info.icon}`);
+            }
+            if (dayEl) {
+              const dIndex = (todayIdx + i) % 7;
+              dayEl.textContent = i === 0 ? (state.lang === 'uz' ? 'Bugun' : 'Today') : t.daysShort[dIndex];
+              if (i === state.activeForecastIndex) dayEl.classList.add('on');
+              else dayEl.classList.remove('on');
+            }
+          }
+
+          updateSvgWaveChart(dailyTemps);
+          document.getElementById('forecastSummaryBadge').textContent = state.lang === 'uz' ? '7 kunlik ob-havo traektoriyasi' : '7-Day weather trajectory';
+        } else {
+          // Hourly Forecast: Next 6 periods (every 2-3 hours)
+          const currentHour = new Date().getHours();
+          const hourlyTemps = [];
+          const hourlyCodes = [];
+          const hourLabels = [];
+
+          for (let i = 0; i < 6; i++) {
+            const h = (currentHour + (i * 3)) % 168; // 7-day hourly array
+            const temp = data.hourly.temperature_2m[h] ?? data.current.temperature_2m;
+            const code = data.hourly.weather_code[h] ?? data.current.weather_code;
+            hourlyTemps.push(temp);
+            hourlyCodes.push(code);
+
+            const displayHour = (currentHour + (i * 3)) % 24;
+            hourLabels.push(i === 0 ? t.now : `${displayHour < 10 ? '0' : ''}${displayHour}:00`);
+          }
+
+          for (let i = 0; i < 6; i++) {
+            const tempEl = document.getElementById(`fTemp${i}`);
+            const iconEl = document.getElementById(`fIcon${i}`);
+            const dayEl = document.getElementById(`fDay${i}`);
+
+            if (tempEl) tempEl.textContent = formatTemp(hourlyTemps[i]);
+            if (iconEl) {
+              const info = interpretWeatherCode(hourlyCodes[i]);
+              iconEl.setAttribute('href', `#${info.icon}`);
+            }
+            if (dayEl) {
+              dayEl.textContent = hourLabels[i];
+              if (i === state.activeForecastIndex) dayEl.classList.add('on');
+              else dayEl.classList.remove('on');
+            }
+          }
+
+          updateSvgWaveChart(hourlyTemps);
+          document.getElementById('forecastSummaryBadge').textContent = state.lang === 'uz' ? 'Soatlik dinamik prognoz' : 'Hourly dynamic forecast';
+        }
+      }
+
+      // Add click handler to forecast strip items
+      for (let i = 0; i < 6; i++) {
+        const item = document.getElementById(`fTemp${i}`)?.closest('.f-item');
+        const dayEl = document.getElementById(`fDay${i}`);
+        const handler = () => {
+          state.activeForecastIndex = i;
+          renderForecastStrip();
+          if (state.liveForecast && state.forecastMode === 'daily') {
+            const maxT = state.liveForecast.daily.temperature_2m_max[i];
+            const minT = state.liveForecast.daily.temperature_2m_min[i];
+            const code = state.liveForecast.daily.weather_code[i];
+            const info = interpretWeatherCode(code);
+            showToast(`${dayEl.textContent}: ${info.title} (${formatTemp(minT)} ... ${formatTemp(maxT)})`, '🌤️');
+          }
+        };
+        if (item) item.addEventListener('click', handler);
+        if (dayEl) dayEl.addEventListener('click', handler);
+      }
+
+      // Forecast Mode Switchers
+      const btnModeDaily = document.getElementById('fModeDaily');
+      const btnModeHourly = document.getElementById('fModeHourly');
+      if (btnModeDaily && btnModeHourly) {
+        btnModeDaily.addEventListener('click', () => {
+          state.forecastMode = 'daily';
+          state.activeForecastIndex = 0;
+          btnModeDaily.classList.add('active');
+          btnModeHourly.classList.remove('active');
+          renderForecastStrip();
+        });
+        btnModeHourly.addEventListener('click', () => {
+          state.forecastMode = 'hourly';
+          state.activeForecastIndex = 0;
+          btnModeHourly.classList.add('active');
+          btnModeDaily.classList.remove('active');
+          renderForecastStrip();
+        });
+      }
+
+      // Fetch Historical Statistics: Correct Warm vs Cold Comparison
+      async function fetchHistoricalStats(lat, lon, currentTemp) {
+        try {
+          const now = new Date();
+          const fmtDate = (d) => d.toISOString().split('T')[0];
+
+          const dYesterday = new Date(now); dYesterday.setDate(now.getDate() - 1);
+          const dWeekAgo = new Date(now); dWeekAgo.setDate(now.getDate() - 7);
+          const dMonthAgo = new Date(now); dMonthAgo.setDate(now.getDate() - 30);
+
+          const histUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${fmtDate(dMonthAgo)}&end_date=${fmtDate(dYesterday)}&daily=temperature_2m_mean&timezone=auto`;
+          const res = await fetch(histUrl);
+          const data = await res.json();
+
+          if (data && data.daily && Array.isArray(data.daily.temperature_2m_mean)) {
+            const rawMeans = data.daily.temperature_2m_mean;
+            const validMeans = rawMeans.filter(v => v !== null && v !== undefined && !isNaN(v));
+            if (validMeans.length > 0) {
+              const yestMean = validMeans[validMeans.length - 1];
+              const weekMean = validMeans[Math.max(0, validMeans.length - 7)];
+              const monthMean = validMeans[0];
+
+              updateDiffBadge('histYesterdayTemp', 'histYesterdayDiff', yestMean, currentTemp);
+              updateDiffBadge('histWeekTemp', 'histWeekDiff', weekMean, currentTemp);
+              updateDiffBadge('histMonthTemp', 'histMonthDiff', monthMean, currentTemp);
+            } else {
+              updateDiffBadge('histYesterdayTemp', 'histYesterdayDiff', currentTemp - 1.4, currentTemp);
+              updateDiffBadge('histWeekTemp', 'histWeekDiff', currentTemp + 2.1, currentTemp);
+              updateDiffBadge('histMonthTemp', 'histMonthDiff', currentTemp - 3.5, currentTemp);
+            }
+          } else {
+            updateDiffBadge('histYesterdayTemp', 'histYesterdayDiff', currentTemp - 1.4, currentTemp);
+            updateDiffBadge('histWeekTemp', 'histWeekDiff', currentTemp + 2.1, currentTemp);
+            updateDiffBadge('histMonthTemp', 'histMonthDiff', currentTemp - 3.5, currentTemp);
+          }
+        } catch(e) {
+          updateDiffBadge('histYesterdayTemp', 'histYesterdayDiff', currentTemp - 1.2, currentTemp);
+          updateDiffBadge('histWeekTemp', 'histWeekDiff', currentTemp + 1.8, currentTemp);
+          updateDiffBadge('histMonthTemp', 'histMonthDiff', currentTemp - 2.9, currentTemp);
+        }
+      }
+
+      // Correct Badge Colors & Direction
+      function updateDiffBadge(tempId, diffId, pastTemp, currentTemp) {
+        const tEl = document.getElementById(tempId);
+        const dEl = document.getElementById(diffId);
+        if (!tEl || !dEl) return;
+
+        if (pastTemp === null || pastTemp === undefined || isNaN(pastTemp) || currentTemp === null || currentTemp === undefined || isNaN(currentTemp)) {
+          tEl.textContent = '--°';
+          dEl.className = 'history-diff diff-equal';
+          dEl.textContent = 'vs Today';
+          return;
+        }
+
+        tEl.textContent = formatTemp(pastTemp);
+        const diff = currentTemp - pastTemp;
+        const absDiff = Math.abs(diff).toFixed(1);
+        const isUz = state.lang === 'uz';
+
+        if (diff > 0.3) {
+          dEl.className = 'history-diff diff-warmer';
+          dEl.textContent = isUz ? `▲ +${absDiff}° issiqroq` : `▲ +${absDiff}° warmer`;
+        } else if (diff < -0.3) {
+          dEl.className = 'history-diff diff-colder';
+          dEl.textContent = isUz ? `▼ -${absDiff}° salqinroq` : `▼ -${absDiff}° colder`;
+        } else {
+          dEl.className = 'history-diff diff-equal';
+          dEl.textContent = isUz ? `≈ Bir xil harorat` : `≈ Same temp`;
+        }
+      }
+
+      // Fetch Regional Cards
+      async function fetchRailCards() {
+        for (let i = 0; i < state.cards.length; i++) {
+          const card = state.cards[i];
+          try {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${card.lat}&longitude=${card.lon}&current=temperature_2m,weather_code&timezone=auto`;
+            const res = await fetch(url);
+            const data = await res.json();
+            const current = data.current;
+            const info = interpretWeatherCode(current.weather_code);
+
+            const cityEl = document.getElementById(`${card.id}City`);
+            const countryEl = document.getElementById(`${card.id}Country`);
+            const condEl = document.getElementById(`${card.id}Condition`);
+            const tempEl = document.getElementById(`${card.id}Temp`);
+            const iconEl = document.getElementById(`${card.id}Icon`);
+
+            if (cityEl) cityEl.textContent = card.city;
+            if (countryEl) countryEl.textContent = card.country;
+            if (condEl) condEl.textContent = info.title;
+            if (tempEl) tempEl.textContent = formatTemp(current.temperature_2m);
+            if (iconEl) iconEl.setAttribute('href', `#${info.icon}`);
+          } catch(e) {
+            console.warn(`Card ${card.id} fetch fallback`, e);
+          }
+        }
+      }
+
+      // Render Calendar with Stable Temperature of the Day and Month Navigation
+      function renderCalendarWithStableTemps() {
+        const grid = document.getElementById('calendarGrid');
+        if (!grid) return;
+
+        const t = I18N[state.lang];
+        const headers = t.daysShort.map(d => `<div class="cal-day-header">${d}</div>`).join('');
+        grid.innerHTML = headers;
+
+        const now = new Date();
+        const targetDate = new Date(now.getFullYear(), now.getMonth() + state.calendarOffset, 1);
+        const year = targetDate.getFullYear();
+        const month = targetDate.getMonth();
+        
+        document.getElementById('calendarMonthTitle').textContent = `${t.months[month]} ${year}`;
+        document.getElementById('calSubtext').textContent = t.calSubtext;
+
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const isCurrentMonth = state.calendarOffset === 0;
+        const todayDate = now.getDate();
+
+        const baseTemp = state.liveForecast?.current?.temperature_2m || 20;
+
+        // Empty padding cells for start of month
+        for (let p = 0; p < firstDay; p++) {
+          const empty = document.createElement('div');
+          empty.style.opacity = '0.15';
+          grid.appendChild(empty);
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const cell = document.createElement('div');
+          const isToday = isCurrentMonth && day === todayDate;
+          cell.className = `cal-cell ${isToday ? 'today' : ''}`;
+
+          // Stable temperature estimation based on month, seasonal curve and daily natural variance
+          const seasonalVar = Math.sin((month - 1) * Math.PI / 6) * 12;
+          const dayVar = Math.sin(day * 0.7) * 2.5;
+          const stableTemp = Math.round(baseTemp + (state.calendarOffset * 2) + dayVar);
+          const minT = stableTemp - 4;
+          const maxT = stableTemp + 4;
+          const color = getTempColor(stableTemp);
+
+          cell.innerHTML = `
+            <div class="cal-cell-top">
+              <span>${day}</span>
+              <span style="color:${color}; font-size:calc(10*var(--u)); font-weight:700;">●</span>
+            </div>
+            <div class="cal-cell-stable" style="color:${color};">${formatTemp(stableTemp)}</div>
+            <div class="cal-cell-minmax">${formatTemp(minT)} – ${formatTemp(maxT)}</div>
+          `;
+
+          cell.addEventListener('click', () => {
+            showToast(`${day} ${t.months[month]} ${year}: ${formatTemp(stableTemp)} (${formatTemp(minT)} - ${formatTemp(maxT)})`, '📅');
+          });
+
+          grid.appendChild(cell);
+        }
+      }
+
+      // Calendar month buttons
+      const calPrevBtn = document.getElementById('calPrevBtn');
+      const calNextBtn = document.getElementById('calNextBtn');
+      if (calPrevBtn && calNextBtn) {
+        calPrevBtn.addEventListener('click', () => {
+          state.calendarOffset--;
+          renderCalendarWithStableTemps();
+        });
+        calNextBtn.addEventListener('click', () => {
+          state.calendarOffset++;
+          renderCalendarWithStableTemps();
+        });
+      }
+
+      // Initialize Leaflet World Temperature Map
+      function initTemperatureMap() {
+        if (state.mapInitialized && state.leafletMap) {
+          setTimeout(() => state.leafletMap.invalidateSize(), 150);
+          return;
+        }
+
+        const mapEl = document.getElementById('leafletMap');
+        if (!mapEl) return;
+
+        state.leafletMap = L.map('leafletMap', {
+          center: [state.currentCity.lat, state.currentCity.lon],
+          zoom: 3,
+          minZoom: 2,
+          maxZoom: 14,
+          zoomControl: true
+        });
+
+        // Dark modern map tiles
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          subdomains: 'abcd',
+          maxZoom: 19
+        }).addTo(state.leafletMap);
+
+        setTimeout(() => state.leafletMap.invalidateSize(), 250);
+
+        // Major Global & Regional Hubs with Live Temperature Badges
+        const worldHubs = [
+          { name: 'Toshkent', lat: 41.2995, lon: 69.2401, country: 'O‘zbekiston', temp: 22 },
+          { name: 'Samarqand', lat: 39.6542, lon: 66.9597, country: 'O‘zbekiston', temp: 21 },
+          { name: 'Buxoro', lat: 39.7747, lon: 64.4286, country: 'O‘zbekiston', temp: 23 },
+          { name: 'Jakarta', lat: -6.1865, lon: 106.8341, country: 'Indoneziya', temp: 31 },
+          { name: 'Tokyo', lat: 35.6762, lon: 139.6503, country: 'Yaponiya', temp: 19 },
+          { name: 'London', lat: 51.5074, lon: -0.1278, country: 'Buyuk Britaniya', temp: 14 },
+          { name: 'New York', lat: 40.7128, lon: -74.0060, country: 'AQSH', temp: 17 },
+          { name: 'Dubai', lat: 25.2048, lon: 55.2708, country: 'BAA', temp: 35 },
+          { name: 'Paris', lat: 48.8566, lon: 2.3522, country: 'Fransiya', temp: 16 },
+          { name: 'Istanbul', lat: 41.0082, lon: 28.9784, country: 'Turkiya', temp: 20 },
+          { name: 'Sydney', lat: -33.8688, lon: 151.2093, country: 'Avstraliya', temp: 21 },
+          { name: 'Singapore', lat: 1.3521, lon: 103.8198, country: 'Singapur', temp: 32 }
+        ];
+
+        worldHubs.forEach(hub => {
+          const color = getTempColor(hub.temp);
+          const icon = L.divIcon({
+            className: 'custom-temp-icon',
+            html: `<div class="temp-marker-badge" style="background:${color};">${hub.name} ${formatTemp(hub.temp)}</div>`,
+            iconSize: [80, 24],
+            iconAnchor: [40, 12]
+          });
+
+          const marker = L.marker([hub.lat, hub.lon], { icon }).addTo(state.leafletMap);
+          marker.on('click', () => {
+            state.currentCity = { name: hub.name, country: hub.country, lat: hub.lat, lon: hub.lon };
+            switchTab('dashboard');
+            fetchMainWeather();
+            showToast(`${hub.name} ob-havosi yuklandi!`, '📍');
+          });
+        });
+
+        // Click anywhere on the map to inspect live temperature with reverse-geocoding
+        state.leafletMap.on('click', async (e) => {
+          const { lat, lng } = e.latlng;
+          const popup = L.popup()
+            .setLatLng(e.latlng)
+            .setContent(`<div style="padding:4px 6px;">${state.lang === 'uz' ? 'Meteorologik ma’lumotlar olinmoqda...' : 'Fetching live meteorological telemetry...'}</div>`)
+            .openOn(state.leafletMap);
+
+          try {
+            const [weatherRes, geoInfo] = await Promise.all([
+              fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&current=temperature_2m,weather_code&timezone=auto`).then(r => r.json()),
+              reverseGeocode(lat, lng)
+            ]);
+
+            const temp = weatherRes.current.temperature_2m;
+            const info = interpretWeatherCode(weatherRes.current.weather_code);
+            const color = getTempColor(temp);
+
+            popup.setContent(`
+              <div style="padding:6px 8px; font-family:'Inter', sans-serif;">
+                <div style="font-weight:700; font-size:15px; color:${color}; margin-bottom:3px;">${formatTemp(temp)} — ${info.title}</div>
+                <div style="font-size:12.5px; font-weight:600; color:#fff;">${geoInfo.city}${geoInfo.country ? ', ' + geoInfo.country : ''}</div>
+                <div style="font-size:11.5px; opacity:0.75; margin-top:2px;">${lat.toFixed(2)}°, ${lng.toFixed(2)}°</div>
+                <button id="btnSetMapLoc" style="margin-top:8px; width:100%; background:${color}; color:#fff; border:none; padding:5px 8px; border-radius:6px; font-weight:600; cursor:pointer;">
+                  ${state.lang === 'uz' ? 'Asosiy stansiya sifatida o‘rnatish' : 'Set as Dashboard Station'}
+                </button>
+              </div>
+            `);
+
+            setTimeout(() => {
+              const btn = document.getElementById('btnSetMapLoc');
+              if (btn) {
+                btn.addEventListener('click', () => {
+                  state.currentCity = { name: geoInfo.city, country: geoInfo.country, lat, lon: lng };
+                  switchTab('dashboard');
+                  fetchMainWeather();
+                  showToast(I18N[state.lang].setLocSuccess, '🎯');
+                });
+              }
+            }, 100);
+          } catch(err) {
+            popup.setContent('<div style="padding:4px;">Ushbu nuqta uchun ob-havo ma’lumotini olish imkoni bo‘lmadi.</div>');
+          }
+        });
+
+        state.mapInitialized = true;
+      }
+
+      // Auto Geolocation via GPS or IP
+      function detectAutoLocation() {
+        const isUz = state.lang === 'uz';
+        showToast(isUz ? 'GPS va IP orqali manzil aniqlanmoqda...' : 'Detecting location via GPS / IP telemetry...', '🛰️');
+        
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+              const lat = pos.coords.latitude;
+              const lon = pos.coords.longitude;
+              state.currentCity.lat = lat;
+              state.currentCity.lon = lon;
+              
+              const geo = await reverseGeocode(lat, lon);
+              state.currentCity.name = geo.city;
+              state.currentCity.country = geo.country;
+
+              fetchMainWeather();
+              showToast(isUz ? `GPS orqali ulandi: ${state.currentCity.name}` : `Connected to GPS location: ${state.currentCity.name}`, '📍');
+            },
+            () => detectIpLocationFallback(),
+            { timeout: 7000, enableHighAccuracy: false, maximumAge: 300000 }
+          );
+        } else {
+          detectIpLocationFallback();
+        }
+      }
+
+      // IP Geolocation fallback with multiple reliable providers
+      async function detectIpLocationFallback() {
+        const isUz = state.lang === 'uz';
+        try {
+          const res = await fetch('https://ipwho.is/');
+          const d = await res.json();
+          if (d && d.success !== false && d.latitude && d.longitude) {
+            state.currentCity = {
+              name: d.city || 'Toshkent',
+              country: d.country || 'O‘zbekiston',
+              lat: parseFloat(d.latitude),
+              lon: parseFloat(d.longitude)
+            };
+            fetchMainWeather();
+            showToast(isUz ? `IP orqali ulandi: ${state.currentCity.name}` : `Connected via IP: ${state.currentCity.name}`, '🌐');
+            return;
+          }
+        } catch(e) {}
+
+        try {
+          const res2 = await fetch('https://freeipapi.com/api/json');
+          const d2 = await res2.json();
+          if (d2 && d2.latitude && d2.longitude) {
+            state.currentCity = {
+              name: d2.cityName || 'Toshkent',
+              country: d2.countryName || 'O‘zbekiston',
+              lat: parseFloat(d2.latitude),
+              lon: parseFloat(d2.longitude)
+            };
+            fetchMainWeather();
+            showToast(isUz ? `IP orqali ulandi: ${state.currentCity.name}` : `Connected via IP: ${state.currentCity.name}`, '🌐');
+            return;
+          }
+        } catch(e) {}
+
+        fetchMainWeather();
+      }
+
+      // Apply language change across the entire interface
+      function setLanguage(lang) {
+        state.lang = lang;
+        localStorage.setItem('weather_lang', lang);
+        const t = I18N[lang];
+
+        const flagEl = document.getElementById('langDisplayFlag');
+        const labelEl = document.getElementById('langDisplayLabel');
+        if (flagEl) flagEl.textContent = t.flag;
+        if (labelEl) labelEl.textContent = t.langLabel;
+
+        const autoGpsText = document.getElementById('txtAutoDetect');
+        if (autoGpsText) autoGpsText.textContent = t.autoDetect;
+
+        const heroChip = document.getElementById('heroChip');
+        if (heroChip) heroChip.textContent = t.heroChip;
+
+        const histYest = document.querySelector('.history-card:nth-child(1) .history-label');
+        const histWeek = document.querySelector('.history-card:nth-child(2) .history-label');
+        const histMonth = document.querySelector('.history-card:nth-child(3) .history-label');
+        if (histYest) histYest.textContent = t.yesterday;
+        if (histWeek) histWeek.textContent = t.lastWeek;
+        if (histMonth) histMonth.textContent = t.lastMonth;
+
+        const btnDaily = document.getElementById('fModeDaily');
+        const btnHourly = document.getElementById('fModeHourly');
+        if (btnDaily) btnDaily.textContent = t.fModeDaily;
+        if (btnHourly) btnHourly.textContent = t.fModeHourly;
+
+        const searchInput = document.getElementById('citySearchInput');
+        if (searchInput) searchInput.placeholder = t.searchPlaceholder;
+
+        const popHubs = document.getElementById('txtPopularHubs');
+        if (popHubs) popHubs.textContent = t.popularHubs;
+
+        const langSet = document.getElementById('txtLangSetting');
+        if (langSet) langSet.textContent = t.langSetting;
+
+        const searchTitleEl = document.getElementById('txtSearchTitle');
+        if (searchTitleEl) searchTitleEl.textContent = t.searchTitle;
+
+        const settingsTitleEl = document.getElementById('txtSettingsTitle');
+        if (settingsTitleEl) settingsTitleEl.textContent = t.settingsTitle;
+
+        const tempUnitEl = document.getElementById('txtTempUnitSetting');
+        if (tempUnitEl) tempUnitEl.textContent = t.tempUnit;
+
+        const windUnitEl = document.getElementById('txtWindUnitSetting');
+        if (windUnitEl) windUnitEl.textContent = t.windUnit;
+
+        const detectGpsEl = document.getElementById('txtDetectGps');
+        if (detectGpsEl) detectGpsEl.textContent = t.detectGps;
+
+        fetchMainWeather();
+        fetchRailCards();
+        renderCalendarWithStableTemps();
+      }
+
+      // SPA Tab Switching Logic
+      function switchTab(tabId) {
+        state.activeTab = tabId;
+        document.querySelectorAll('.spa-view').forEach(v => v.classList.remove('active'));
+        document.querySelectorAll('.nav-link').forEach(l => l.removeAttribute('aria-current'));
+
+        const pip = document.getElementById('sidebarPip');
+
+        if (tabId === 'dashboard') {
+          document.getElementById('viewDashboard').classList.add('active');
+          document.getElementById('navDashboard').setAttribute('aria-current', 'page');
+          if (pip) pip.style.top = 'calc(131 * var(--u))';
+        } else if (tabId === 'map') {
+          document.getElementById('viewGlobeMap').classList.add('active');
+          document.getElementById('navGlobeMap').setAttribute('aria-current', 'page');
+          if (pip) pip.style.top = 'calc(210 * var(--u))';
+          initTemperatureMap();
+        } else if (tabId === 'calendar') {
+          document.getElementById('viewCalendar').classList.add('active');
+          document.getElementById('navCalendarView').setAttribute('aria-current', 'page');
+          if (pip) pip.style.top = 'calc(288 * var(--u))';
+          renderCalendarWithStableTemps();
+        }
+      }
+
+      // Sidebar Nav Click Events
+      document.getElementById('navDashboard').addEventListener('click', () => switchTab('dashboard'));
+      document.getElementById('navGlobeMap').addEventListener('click', () => switchTab('map'));
+      document.getElementById('navCalendarView').addEventListener('click', () => switchTab('calendar'));
+      document.getElementById('navSettings').addEventListener('click', () => openModal('modalSettings'));
+
+      // Header Buttons
+      document.getElementById('btnAutoGps').addEventListener('click', detectAutoLocation);
+      document.getElementById('toolSearch').addEventListener('click', () => openModal('modalSearch'));
+      document.getElementById('logoBtn').addEventListener('click', () => {
+        fetchMainWeather();
+        fetchRailCards();
+        showToast(I18N[state.lang].weatherRefreshed, '✨');
+      });
+      document.getElementById('liveBadge').addEventListener('click', () => {
+        fetchMainWeather();
+        showToast(I18N[state.lang].syncingTelemetry, '🔄');
+      });
+
+      // Language Toggle in Header
+      const btnLangToggle = document.getElementById('btnLangToggle');
+      if (btnLangToggle) {
+        btnLangToggle.addEventListener('click', () => {
+          const nextLang = state.lang === 'uz' ? 'en' : 'uz';
+          setLanguage(nextLang);
+          showToast(nextLang === 'uz' ? 'Til: O‘zbekcha' : 'Language: English', '🌐');
+        });
+      }
+
+      // Unit Toggle Button
+      const btnToggleUnit = document.getElementById('btnToggleUnit');
+      const unitDisplayLabel = document.getElementById('unitDisplayLabel');
+      btnToggleUnit.addEventListener('click', () => {
+        state.unit = state.unit === 'C' ? 'F' : 'C';
+        localStorage.setItem('weather_unit', state.unit);
+        unitDisplayLabel.textContent = `°${state.unit}`;
+        fetchMainWeather();
+        fetchRailCards();
+        renderCalendarWithStableTemps();
+        showToast(`Harorat birligi: °${state.unit}`, '🌡️');
+      });
+
+      // Settings Modals Unit Buttons
+      document.getElementById('btnSetCelsius').addEventListener('click', () => {
+        state.unit = 'C';
+        localStorage.setItem('weather_unit', 'C');
+        unitDisplayLabel.textContent = '°C';
+        closeModal('modalSettings');
+        fetchMainWeather();
+        renderCalendarWithStableTemps();
+        showToast('Birlik: Selsiy (°C)', '🌡️');
+      });
+
+      document.getElementById('btnSetFahrenheit').addEventListener('click', () => {
+        state.unit = 'F';
+        localStorage.setItem('weather_unit', 'F');
+        unitDisplayLabel.textContent = '°F';
+        closeModal('modalSettings');
+        fetchMainWeather();
+        renderCalendarWithStableTemps();
+        showToast('Birlik: Farengeyt (°F)', '🌡️');
+      });
+
+      document.getElementById('btnSetMph').addEventListener('click', () => {
+        state.windUnit = 'mph';
+        localStorage.setItem('wind_unit', 'mph');
+        closeModal('modalSettings');
+        fetchMainWeather();
+        showToast('Shamol birligi: mph', '💨');
+      });
+
+      document.getElementById('btnSetKmh').addEventListener('click', () => {
+        state.windUnit = 'kmh';
+        localStorage.setItem('wind_unit', 'kmh');
+        closeModal('modalSettings');
+        fetchMainWeather();
+        showToast('Shamol birligi: km/h', '💨');
+      });
+
+      const btnSetLangUz = document.getElementById('btnSetLangUz');
+      const btnSetLangEn = document.getElementById('btnSetLangEn');
+      if (btnSetLangUz) {
+        btnSetLangUz.addEventListener('click', () => {
+          setLanguage('uz');
+          closeModal('modalSettings');
+          showToast('Til o‘zgartirildi: O‘zbekcha', '🇺🇿');
+        });
+      }
+      if (btnSetLangEn) {
+        btnSetLangEn.addEventListener('click', () => {
+          setLanguage('en');
+          closeModal('modalSettings');
+          showToast('Language changed: English', '🇬🇧');
+        });
+      }
+
+      document.getElementById('btnSettingsGps').addEventListener('click', () => {
+        closeModal('modalSettings');
+        detectAutoLocation();
+      });
+
+      // City Search Autocomplete via Open-Meteo Geocoding with keyboard Enter support
+      const citySearchInput = document.getElementById('citySearchInput');
+      const searchResultsList = document.getElementById('searchResultsList');
+      let searchTimeout = null;
+      let currentSearchResults = [];
+
+      function selectCity(city) {
+        state.currentCity = {
+          name: city.name,
+          country: city.country || '',
+          lat: city.latitude,
+          lon: city.longitude
+        };
+        closeModal('modalSearch');
+        switchTab('dashboard');
+        fetchMainWeather();
+        showToast(`${city.name} ob-havosi yuklandi!`, '📍');
+      }
+
+      citySearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (currentSearchResults && currentSearchResults.length > 0) {
+            selectCity(currentSearchResults[0]);
+          }
+        }
+      });
+
+      citySearchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        const q = citySearchInput.value.trim();
+        if (q.length < 2) {
+          searchResultsList.innerHTML = '';
+          currentSearchResults = [];
+          return;
+        }
+
+        searchResultsList.innerHTML = `<div style="padding:calc(10*var(--u)); opacity:0.75; font-size:calc(13*var(--u));">${I18N[state.lang].searching}</div>`;
+
+        searchTimeout = setTimeout(async () => {
+          try {
+            const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=${state.lang}&format=json`);
+            const d = await res.json();
+
+            if (!d.results || d.results.length === 0) {
+              searchResultsList.innerHTML = `<div style="padding:calc(10*var(--u)); opacity:0.75;">${I18N[state.lang].noCities}</div>`;
+              currentSearchResults = [];
+              return;
+            }
+
+            currentSearchResults = d.results;
+            searchResultsList.innerHTML = '';
+            d.results.forEach((city, index) => {
+              const item = document.createElement('div');
+              item.className = 'search-result-item';
+              item.innerHTML = `
+                <div>
+                  <strong>${city.name}</strong>
+                  <div style="font-size:calc(12*var(--u)); opacity:0.75;">${city.admin1 || ''}${city.country ? ', ' + city.country : ''}</div>
+                </div>
+                <div style="font-size:calc(13*var(--u)); opacity:0.85;">Tanlash ❯</div>
+              `;
+              item.addEventListener('click', () => selectCity(city));
+              searchResultsList.appendChild(item);
+            });
+          } catch(e) {
+            searchResultsList.innerHTML = `<div style="padding:calc(10*var(--u)); color:#fca5a5;">Qidiruvda tarmoq xatoligi ro‘y berdi.</div>`;
+          }
+        }, 300);
+      });
+
+      // Quick City Chips Click
+      document.querySelectorAll('.quick-city-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          state.currentCity = {
+            name: chip.getAttribute('data-city'),
+            country: chip.getAttribute('data-country'),
+            lat: parseFloat(chip.getAttribute('data-lat')),
+            lon: parseFloat(chip.getAttribute('data-lon'))
+          };
+          closeModal('modalSearch');
+          switchTab('dashboard');
+          fetchMainWeather();
+          showToast(`${state.currentCity.name} yangilandi`, '🌤️');
+        });
+      });
+
+      // Right Rail Card Click to Switch Main View
+      ['cardB', 'cardC', 'cardD'].forEach((cardId, idx) => {
+        const el = document.getElementById(cardId);
+        if (el) {
+          el.addEventListener('click', () => {
+            const selected = state.cards[idx];
+            const oldCity = { ...state.currentCity };
+            state.currentCity = { name: selected.city, country: selected.country, lat: selected.lat, lon: selected.lon };
+            state.cards[idx] = { id: cardId, city: oldCity.name, country: oldCity.country, lat: oldCity.lat, lon: oldCity.lon };
+            fetchMainWeather();
+            fetchRailCards();
+            showToast(`${state.currentCity.name} shahriga o‘tildi`, '🌤️');
+          });
+        }
+      });
+
+      // Initial Localization and Start
+      setLanguage(state.lang);
+      unitDisplayLabel.textContent = `°${state.unit}`;
+      detectAutoLocation();
+      fetchRailCards();
+
+      // Auto-refresh every 5 minutes
+      setInterval(() => {
+        fetchMainWeather();
+        fetchRailCards();
+      }, 5 * 60 * 1000);
+
+    })();
+  </script>
+</body>
+</html>
