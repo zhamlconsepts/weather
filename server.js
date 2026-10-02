@@ -24,8 +24,11 @@ const server = http.createServer((req, res) => {
   } catch (e) {
     reqUrl = req.url.split('?')[0];
   }
+  const baseDir = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
+    ? path.join(__dirname, 'dist')
+    : __dirname;
   let safePath = path.normalize(reqUrl).replace(/^(\.\.[\/\\])+/, '');
-  let filePath = path.join(__dirname, safePath === '/' || safePath === '\\' ? 'index.html' : safePath);
+  let filePath = path.join(baseDir, safePath === '/' || safePath === '\\' ? 'index.html' : safePath);
 
   fs.stat(filePath, (err, stats) => {
     if (err) {
